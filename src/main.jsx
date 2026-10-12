@@ -1265,7 +1265,7 @@ function App() {
                     <div className="mass-planet-scene">
                       {item.name === 'Saturn' && <div className="mass-saturn-ring" />}
                       <div className="mass-planet-ball" style={{ width: item.diameter + 'px', height: item.diameter + 'px', background: item.color }}>
-                        <div className="mass-person-cutout" aria-hidden="true"><span className="person-head" /><span className="person-body" /><span className="person-leg left" /><span className="person-leg right" /><span className="person-arm left" /><span className="person-arm right" /></div>
+                        <div className="mass-person-cutout" style={{ transform: 'translateX(-50%) scale(' + (item.diameter / 76) + ')' }} aria-hidden="true"><span className="person-head" /><span className="person-body" /><span className="person-leg left" /><span className="person-leg right" /><span className="person-arm left" /><span className="person-arm right" /></div>
                       </div>
                       <div className="mass-planet-shadow" />
                     </div>
