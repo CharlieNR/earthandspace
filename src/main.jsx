@@ -67,6 +67,143 @@ function formatEarthquakeTime(timestamp) {
   });
 }
 
+
+const GLOBAL_MAP_WIDTH = 1000;
+const GLOBAL_MAP_HEIGHT = 500;
+const NASA_EONET_VOLCANO_URL = 'https://eonet.gsfc.nasa.gov/api/v3/events?category=volcanoes&status=open&days=365&limit=500';
+const SMITHSONIAN_VOLCANO_WFS_URL = 'https://webservices.volcano.si.edu/geoserver/GVP-VOTW/ows';
+const USGS_VOLCANO_ALERTS_URL = 'https://volcanoes.usgs.gov/hans-public/api/volcano/getElevatedVolcanoes';
+const VOLCANO_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
+
+function equirectangularPoint(longitude, latitude) {
+  return {
+    x: ((Number(longitude) + 180) / 360) * GLOBAL_MAP_WIDTH,
+    y: ((90 - Number(latitude)) / 180) * GLOBAL_MAP_HEIGHT,
+  };
+}
+
+function geoGeometryToEquirectangularPath(geometry) {
+  if (!geometry) return '';
+  const pathParts = [];
+  const project = (point) => {
+    const mapped = equirectangularPoint(point[0], point[1]);
+    return Number.isFinite(mapped.x) && Number.isFinite(mapped.y)
+      ? [Math.max(-2, Math.min(GLOBAL_MAP_WIDTH + 2, mapped.x)), Math.max(-2, Math.min(GLOBAL_MAP_HEIGHT + 2, mapped.y))]
+      : null;
+  };
+
+  const appendRing = (ring) => {
+    const points = (Array.isArray(ring) ? ring : []).filter((point) =>
+      Array.isArray(point) && Number.isFinite(Number(point[0])) && Number.isFinite(Number(point[1]))
+    );
+    if (points.length < 3) return;
+
+    // Split rings at the antimeridian rather than drawing a false line across the map.
+    let current = [points[0]];
+    const segments = [];
+    for (let index = 1; index <= points.length; index += 1) {
+      const previous = points[index - 1];
+      const next = points[index % points.length];
+      const rawDifference = Number(next[0]) - Number(previous[0]);
+      if (Math.abs(rawDifference) > 180) {
+        const crossesEast = rawDifference < -180;
+        const unwrappedNextLongitude = Number(next[0]) + (crossesEast ? 360 : -360);
+        const boundaryLongitude = crossesEast ? 180 : -180;
+        const denominator = unwrappedNextLongitude - Number(previous[0]);
+        const fraction = Math.abs(denominator) > 1e-9
+          ? (boundaryLongitude - Number(previous[0])) / denominator
+          : 0.5;
+        const boundaryLatitude = Number(previous[1]) + (Number(next[1]) - Number(previous[1])) * fraction;
+        current.push([boundaryLongitude, boundaryLatitude]);
+        segments.push(current);
+        current = [[-boundaryLongitude, boundaryLatitude]];
+        if (index < points.length) current.push(next);
+      } else if (index < points.length) {
+        current.push(next);
+      }
+    }
+    segments.push(current);
+
+    segments.forEach((segment) => {
+      if (segment.length < 3) return;
+      const mapped = segment.map(project);
+      if (mapped.some((point) => !point)) return;
+      pathParts.push('M' + mapped.map((point) => point[0].toFixed(2) + ',' + point[1].toFixed(2)).join('L') + 'Z');
+    });
+  };
+
+  const visitPolygonCoordinates = (coordinates) => {
+    if (!Array.isArray(coordinates)) return;
+    coordinates.forEach(appendRing);
+  };
+  const visit = (item) => {
+    if (!item) return;
+    if (item.type === 'Feature') {
+      visit(item.geometry);
+    } else if (item.type === 'FeatureCollection') {
+      (item.features || []).forEach(visit);
+    } else if (item.type === 'Polygon') {
+      visitPolygonCoordinates(item.coordinates);
+    } else if (item.type === 'MultiPolygon') {
+      (item.coordinates || []).forEach(visitPolygonCoordinates);
+    } else if (item.type === 'GeometryCollection') {
+      (item.geometries || []).forEach(visit);
+    }
+  };
+  visit(geometry);
+  return pathParts.join('');
+}
+
+function getVolcanoProperty(properties, candidateKeys) {
+  if (!properties || typeof properties !== 'object') return null;
+  const entries = Object.entries(properties);
+  const normalize = (value) => String(value).toLowerCase().replace(/[^a-z0-9]/g, '');
+  for (const candidate of candidateKeys) {
+    const wanted = normalize(candidate);
+    const found = entries.find(([key, value]) => normalize(key) === wanted && value !== null && value !== undefined && String(value).trim() !== '');
+    if (found) return found[1];
+  }
+  for (const candidate of candidateKeys) {
+    const wanted = normalize(candidate);
+    const found = entries.find(([key, value]) => normalize(key).includes(wanted) && value !== null && value !== undefined && String(value).trim() !== '');
+    if (found) return found[1];
+  }
+  return null;
+}
+
+function eonetGeometryPoint(geometry) {
+  if (!geometry) return null;
+  if (geometry.type === 'Point' && Array.isArray(geometry.coordinates)) {
+    const longitude = Number(geometry.coordinates[0]);
+    const latitude = Number(geometry.coordinates[1]);
+    return Number.isFinite(longitude) && Number.isFinite(latitude) ? { longitude, latitude } : null;
+  }
+  let coordinateList = [];
+  const gather = (value) => {
+    if (!Array.isArray(value)) return;
+    if (value.length >= 2 && typeof value[0] === 'number' && typeof value[1] === 'number') {
+      coordinateList.push(value);
+      return;
+    }
+    value.forEach(gather);
+  };
+  gather(geometry.coordinates);
+  if (!coordinateList.length) return null;
+  const longitudes = coordinateList.map((coordinate) => Number(coordinate[0]));
+  const latitudes = coordinateList.map((coordinate) => Number(coordinate[1]));
+  const longitude = longitudes.reduce((sum, value) => sum + value, 0) / longitudes.length;
+  const latitude = latitudes.reduce((sum, value) => sum + value, 0) / latitudes.length;
+  return Number.isFinite(longitude) && Number.isFinite(latitude) ? { longitude, latitude } : null;
+}
+
+function volcanoAlertColour(alert) {
+  const color = String(alert?.color_code || '').toUpperCase();
+  if (color === 'RED') return '#ff5b65';
+  if (color === 'ORANGE') return '#ff9b58';
+  if (color === 'YELLOW') return '#f2d26c';
+  return '#8cb5db';
+}
+
 const BUMP_TEXTURE = 'https://unpkg.com/three-globe/example/img/earth-topology.png';
 const STAR_TEXTURE = 'https://unpkg.com/three-globe/example/img/night-sky.png';
 
@@ -1005,10 +1142,27 @@ function reconstructedCoastlinePaths(features) {
 function App() {
   const globeRef = useRef(null);
   const stageRef = useRef(null);
-  const quakeGlobeRef = useRef(null);
+  const quakeMapSvgRef = useRef(null);
+  const quakeMapDragRef = useRef(null);
   const quakeStageRef = useRef(null);
   const requestRef = useRef(0);
   const [systemSelected, setSystemSelected] = useState('landing');
+  const [quakeLayer, setQuakeLayer] = useState('earthquakes');
+  const [quakeMapView, setQuakeMapView] = useState({ zoom: 1, panX: 0, panY: 0 });
+  const [volcanoSites, setVolcanoSites] = useState([]);
+  const [eruptionEvents, setEruptionEvents] = useState([]);
+  const [volcanoAlerts, setVolcanoAlerts] = useState([]);
+  const [volcanoLoading, setVolcanoLoading] = useState(false);
+  const [volcanoError, setVolcanoError] = useState('');
+  const [volcanoUpdatedAt, setVolcanoUpdatedAt] = useState(null);
+  const [volcanoRefreshNonce, setVolcanoRefreshNonce] = useState(0);
+  const [volcanoAutoRefresh, setVolcanoAutoRefresh] = useState(true);
+  const [showAllVolcanoSites, setShowAllVolcanoSites] = useState(true);
+  const [showReportedActivity, setShowReportedActivity] = useState(true);
+  const [showUSGSVolcanoAlerts, setShowUSGSVolcanoAlerts] = useState(true);
+  const [volcanoSelectedId, setVolcanoSelectedId] = useState(null);
+  const volcanoSitesLoadedRef = useRef(false);
+
   const [quakeEvents, setQuakeEvents] = useState([]);
   const [quakeRange, setQuakeRange] = useState('day');
   const [quakeMinMagnitude, setQuakeMinMagnitude] = useState('0');
@@ -1157,8 +1311,79 @@ function App() {
     return sorted;
   }, [quakeFilteredEvents, quakeSort]);
 
-  const quakeMapEvents = quakeSortedEvents;
+
+  const quakeMapEvents = quakeSortedEvents.slice(0, 5000);
   const quakeListEvents = quakeSortedEvents.slice(0, 100);
+
+  const quakeWorldMapPaths = useMemo(() => countries
+    .map((country) => ({
+      id: countryKey(country),
+      name: country.properties?.name || countryKey(country),
+      d: geoGeometryToEquirectangularPath(country.geometry),
+    }))
+    .filter((country) => country.d), [countries]);
+
+  const volcanoSitesWithAlerts = useMemo(() => volcanoSites.map((site) => {
+    const alert = volcanoAlerts.find((item) =>
+      (site.number && String(item.vnum) === String(site.number))
+      || (item.volcano_name && site.name && String(item.volcano_name).trim().toLowerCase() === site.name.trim().toLowerCase())
+    ) || null;
+    return { ...site, alert };
+  }), [volcanoSites, volcanoAlerts]);
+
+  const volcanoAlertRows = useMemo(() => volcanoAlerts.map((alert) => {
+    const site = volcanoSitesWithAlerts.find((item) =>
+      (item.number && String(item.number) === String(alert.vnum))
+      || (item.name && alert.volcano_name && item.name.toLowerCase() === String(alert.volcano_name).toLowerCase())
+    ) || null;
+    return {
+      id: 'usgs-alert-' + String(alert.notice_identifier || alert.vnum || alert.volcano_name),
+      type: 'alert',
+      name: alert.volcano_name || site?.name || 'USGS monitored volcano',
+      country: site?.country || alert.obs_fullname || 'United States monitoring network',
+      longitude: site?.longitude,
+      latitude: site?.latitude,
+      date: Number(alert.sent_unixtime) * 1000 || Date.parse(alert.sent_utc) || Date.now(),
+      alertLevel: alert.alert_level || 'Alert level unavailable',
+      colorCode: alert.color_code || '',
+      source: 'USGS Volcano Hazards Program',
+      url: alert.notice_url || 'https://volcanoes.usgs.gov/hans-public/',
+      site,
+    };
+  }), [volcanoAlerts, volcanoSitesWithAlerts]);
+
+  const volcanoActivityRows = useMemo(() => [
+    ...eruptionEvents.map((event) => ({ ...event, type: 'activity' })),
+    ...volcanoAlertRows,
+  ].filter((event) => {
+    const query = quakeSearch.trim().toLowerCase();
+    if (!query) return true;
+    return (event.name + ' ' + (event.country || '') + ' ' + (event.description || '') + ' ' + (event.alertLevel || '')).toLowerCase().includes(query);
+  }).sort((a, b) => Number(b.date || 0) - Number(a.date || 0)), [eruptionEvents, volcanoAlertRows, quakeSearch]);
+
+  const volcanoMapPoints = useMemo(() => {
+    const points = [];
+    const query = quakeSearch.trim().toLowerCase();
+    const matchesQuery = (item) => !query || (item.name + ' ' + (item.country || '') + ' ' + (item.region || '')).toLowerCase().includes(query);
+
+    if (showAllVolcanoSites) {
+      volcanoSitesWithAlerts.filter(matchesQuery).forEach((site) => {
+        points.push({ ...site, id: 'volcano-site-' + site.id, type: 'site' });
+      });
+    }
+    if (showUSGSVolcanoAlerts && !showAllVolcanoSites) {
+      volcanoAlertRows.filter((alert) => Number.isFinite(alert.longitude) && Number.isFinite(alert.latitude)).filter(matchesQuery).forEach((alert) => {
+        points.push({ ...alert, id: 'volcano-alert-point-' + alert.id, type: 'alert' });
+      });
+    }
+    if (showReportedActivity) {
+      eruptionEvents.filter(matchesQuery).forEach((event) => {
+        points.push({ ...event, id: 'volcano-activity-' + event.id, type: 'activity' });
+      });
+    }
+    return points.filter((point) => Number.isFinite(Number(point.longitude)) && Number.isFinite(Number(point.latitude)));
+  }, [volcanoSitesWithAlerts, volcanoAlertRows, eruptionEvents, showAllVolcanoSites, showUSGSVolcanoAlerts, showReportedActivity, quakeSearch]);
+
 
   const visibleEvents = useMemo(() => EVENTS.filter((event) => Math.abs(event.ma - age) < 95), [age]);
   const historicalCoastlinePaths = useMemo(
@@ -1259,6 +1484,182 @@ function App() {
       if (refreshTimer) window.clearInterval(refreshTimer);
     };
   }, [systemSelected, quakeRange, quakeAutoRefresh, quakeRefreshNonce]);
+
+
+  useEffect(() => {
+    if (systemSelected !== 'phivolcs' || volcanoSitesLoadedRef.current || volcanoSites.length > 0) return;
+    let cancelled = false;
+    const controller = new AbortController();
+
+    const loadVolcanoCatalogue = async () => {
+      setVolcanoLoading(true);
+      try {
+        const url = new URL(SMITHSONIAN_VOLCANO_WFS_URL);
+        url.searchParams.set('service', 'WFS');
+        url.searchParams.set('version', '2.0.0');
+        url.searchParams.set('request', 'GetFeature');
+        url.searchParams.set('typeNames', 'GVP-VOTW:Smithsonian_VOTW_Holocene_Volcanoes');
+        url.searchParams.set('outputFormat', 'application/json');
+        url.searchParams.set('count', '2000');
+
+        const response = await fetch(url.toString(), {
+          signal: controller.signal,
+          headers: { Accept: 'application/json, application/geo+json;q=0.9' },
+        });
+        if (!response.ok) throw new Error('Smithsonian volcano catalogue returned HTTP ' + response.status);
+        const collection = await response.json();
+        const features = Array.isArray(collection?.features) ? collection.features : [];
+        const sites = features.map((feature, index) => {
+          const properties = feature.properties || {};
+          const coordinates = feature.geometry?.coordinates || [];
+          const longitude = Number(coordinates[0]);
+          const latitude = Number(coordinates[1]);
+          const number = getVolcanoProperty(properties, ['volcano_nu', 'volcano_number', 'vnum']);
+          const name = getVolcanoProperty(properties, ['volcano_na', 'volcano_name', 'primary_vo', 'name']);
+          const country = getVolcanoProperty(properties, ['country']);
+          const region = getVolcanoProperty(properties, ['region']);
+          const lastEruption = getVolcanoProperty(properties, ['last_erupt', 'last_eruption_year']);
+          const volcanoType = getVolcanoProperty(properties, ['primary_volcano_type', 'volcano_type', 'primary_vo']);
+          return {
+            id: String(number || feature.id || index),
+            number: number == null ? '' : String(number),
+            name: String(name || 'Unnamed volcano'),
+            country: String(country || ''),
+            region: String(region || ''),
+            lastEruption: lastEruption == null ? 'Unknown' : String(lastEruption),
+            volcanoType: volcanoType == null ? 'Type not specified' : String(volcanoType),
+            longitude,
+            latitude,
+            url: number ? 'https://volcano.si.edu/volcano.cfm?vn=' + encodeURIComponent(String(number)) : 'https://volcano.si.edu/',
+          };
+        }).filter((site) =>
+          site.name !== 'Unnamed volcano'
+          && Number.isFinite(site.longitude) && Number.isFinite(site.latitude)
+          && Math.abs(site.longitude) <= 180 && Math.abs(site.latitude) <= 90
+        );
+
+        if (cancelled || controller.signal.aborted) return;
+        setVolcanoSites(sites);
+        volcanoSitesLoadedRef.current = sites.length > 0;
+        diagnostic('info', 'VOLCANO', 'Smithsonian Global Volcanism Program catalogue loaded', {
+          source: 'Smithsonian Global Volcanism Program WFS',
+          returnedFeatures: features.length,
+          usableVolcanoes: sites.length,
+        });
+        if (!sites.length) throw new Error('The Smithsonian service returned no usable volcano coordinates.');
+      } catch (error) {
+        if (cancelled || controller.signal.aborted || error?.name === 'AbortError') return;
+        setVolcanoError((existing) => existing || ('Volcano catalogue unavailable: ' + (error?.message || String(error))));
+        diagnostic('error', 'VOLCANO', 'Could not load the Smithsonian volcano catalogue', { message: error?.message || String(error) });
+      } finally {
+        if (!cancelled && !controller.signal.aborted) setVolcanoLoading(false);
+      }
+    };
+
+    loadVolcanoCatalogue();
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [systemSelected, volcanoSites.length]);
+
+  useEffect(() => {
+    if (systemSelected !== 'phivolcs') return;
+    let cancelled = false;
+    let activeController = null;
+    let refreshTimer = null;
+
+    const refreshVolcanicReports = async () => {
+      activeController?.abort();
+      const controller = new AbortController();
+      activeController = controller;
+      setVolcanoLoading(true);
+      const errors = [];
+
+      const fetchEonet = async () => {
+        const response = await fetch(NASA_EONET_VOLCANO_URL, {
+          cache: 'no-store',
+          signal: controller.signal,
+          headers: { Accept: 'application/json' },
+        });
+        if (!response.ok) throw new Error('NASA EONET returned HTTP ' + response.status);
+        const payload = await response.json();
+        const events = Array.isArray(payload?.events) ? payload.events : [];
+        return events.map((event) => {
+          const geometries = [...(event.geometry || [])].sort((a, b) => Date.parse(a.date || 0) - Date.parse(b.date || 0));
+          const latestGeometry = geometries[geometries.length - 1];
+          const point = eonetGeometryPoint(latestGeometry);
+          if (!point) return null;
+          const source = event.sources?.find((item) => item.url) || null;
+          return {
+            id: String(event.id),
+            name: event.title || 'Reported volcanic activity',
+            description: event.description || '',
+            longitude: point.longitude,
+            latitude: point.latitude,
+            date: Date.parse(latestGeometry?.date || 0) || null,
+            status: event.closed ? 'Closed' : 'Open',
+            source: 'NASA Earth Observatory Natural Event Tracker (EONET)',
+            url: source?.url || event.link || 'https://eonet.gsfc.nasa.gov/',
+            eonetUrl: event.link || '',
+            country: '',
+          };
+        }).filter(Boolean);
+      };
+
+      const fetchUsfsAlerts = async () => {
+        const response = await fetch(USGS_VOLCANO_ALERTS_URL, {
+          cache: 'no-store',
+          signal: controller.signal,
+          headers: { Accept: 'application/json' },
+        });
+        if (!response.ok) throw new Error('USGS volcano alert API returned HTTP ' + response.status);
+        const payload = await response.json();
+        if (!Array.isArray(payload)) throw new Error('USGS volcano alert API returned an unexpected format');
+        return payload;
+      };
+
+      const [eonetResult, alertResult] = await Promise.allSettled([fetchEonet(), fetchUsfsAlerts()]);
+      if (cancelled || controller.signal.aborted) return;
+
+      if (eonetResult.status === 'fulfilled') {
+        setEruptionEvents(eonetResult.value);
+        diagnostic('info', 'VOLCANO', 'NASA EONET volcanic activity refreshed', {
+          source: 'NASA EONET open volcano events',
+          events: eonetResult.value.length,
+        });
+      } else {
+        errors.push('NASA eruption/activity feed: ' + (eonetResult.reason?.message || String(eonetResult.reason)));
+        diagnostic('error', 'VOLCANO', 'NASA EONET volcanic activity refresh failed', { message: eonetResult.reason?.message || String(eonetResult.reason) });
+      }
+
+      if (alertResult.status === 'fulfilled') {
+        setVolcanoAlerts(alertResult.value);
+        diagnostic('info', 'VOLCANO', 'USGS elevated volcano-alert feed refreshed', {
+          source: 'USGS Volcano Hazards Program',
+          elevatedAlerts: alertResult.value.length,
+          coverage: 'USGS-monitored US volcanoes only',
+        });
+      } else {
+        errors.push('USGS volcano alerts: ' + (alertResult.reason?.message || String(alertResult.reason)));
+        diagnostic('error', 'VOLCANO', 'USGS volcano-alert refresh failed', { message: alertResult.reason?.message || String(alertResult.reason) });
+      }
+
+      setVolcanoUpdatedAt(Date.now());
+      setVolcanoError(errors.join(' · '));
+      setVolcanoLoading(false);
+    };
+
+    refreshVolcanicReports();
+    if (volcanoAutoRefresh) {
+      refreshTimer = window.setInterval(refreshVolcanicReports, VOLCANO_REFRESH_INTERVAL_MS);
+    }
+    return () => {
+      cancelled = true;
+      activeController?.abort();
+      if (refreshTimer) window.clearInterval(refreshTimer);
+    };
+  }, [systemSelected, volcanoAutoRefresh, volcanoRefreshNonce]);
 
   useEffect(() => {
     const media = window.matchMedia?.('(prefers-reduced-motion: reduce)');
@@ -1973,13 +2374,13 @@ function App() {
               className="brand-mark"
               type="button"
               onClick={() => {
-                diagnostic('info', 'UI', 'Returned to the system chooser from the Earth icon', { program: 'PHIVOLCS System' });
+                diagnostic('info', 'UI', 'Returned to the system chooser from the Earth icon', { program: 'Global Seismic & Volcanic Monitor' });
                 setTerminalOpen(false);
                 setSystemSelected('landing');
               }}
               onContextMenu={(event) => {
                 event.preventDefault();
-                diagnostic('info', 'UI', 'Diagnostics terminal opened from the Earth icon context menu', { program: 'PHIVOLCS System' });
+                diagnostic('info', 'UI', 'Diagnostics terminal opened from the Earth icon context menu', { program: 'Global Seismic & Volcanic Monitor' });
                 setTerminalOpen(true);
               }}
               aria-expanded={terminalOpen}
@@ -1990,16 +2391,16 @@ function App() {
               <span /><span /><span />
             </button>
             <div>
-              <div className="phivolcs-brand-title">PHIVOLCS <span>SEISMIC MONITOR</span></div>
-              <div className="phivolcs-brand-sub">Global earthquake activity · public data</div>
+              <div className="phivolcs-brand-title">GLOBAL GEOHAZARDS <span>SEISMIC &amp; VOLCANIC MONITOR</span></div>
+              <div className="phivolcs-brand-sub">Worldwide earthquake and volcano activity</div>
             </div>
           </div>
           <div className="phivolcs-header-actions">
             <span className={quakeLoading ? 'quake-live-state is-loading' : 'quake-live-state'}>
               <span className="quake-live-dot" />
-              {quakeLoading ? 'UPDATING' : quakeError ? 'FEED ISSUE' : 'LIVE FEED'}
+              {(quakeLoading || (quakeLayer === 'volcanoes' && volcanoLoading)) ? 'UPDATING' : ((quakeLayer === 'earthquakes' ? quakeError : volcanoError) ? 'FEED ISSUE' : 'LIVE FEED')}
             </span>
-            <button className="quake-refresh-button" type="button" onClick={() => setQuakeRefreshNonce((value) => value + 1)} disabled={quakeLoading} title="Fetch the latest feed">↻ <span>Refresh</span></button>
+            <button className="quake-refresh-button" type="button" onClick={() => { setQuakeRefreshNonce((value) => value + 1); setVolcanoRefreshNonce((value) => value + 1); }} disabled={quakeLoading || volcanoLoading} title="Fetch the latest feed">↻ <span>Refresh</span></button>
           </div>
         </header>
 
@@ -2205,7 +2606,7 @@ function App() {
           </aside>
         </div>
         <footer className="phivolcs-footer">
-          <span>PHIVOLCS SYSTEM <span className="footer-separator">/</span> GLOBAL SEISMIC MONITOR</span>
+          <span>GLOBAL GEOHAZARDS <span className="footer-separator">/</span> SEISMIC &amp; VOLCANIC MONITOR</span>
           <span>Click the Earth to return home · Right-click it to open diagnostics</span>
         </footer>
       </main>
@@ -2352,8 +2753,8 @@ function App() {
             <button className="system-choice system-choice-primary" type="button" onClick={() => setSystemSelected('phivolcs')}>
               <span className="system-choice-icon" aria-hidden="true">⌁</span>
               <span className="system-choice-copy">
-                <strong>PHIVOLCS System</strong>
-                <span>Explore live global earthquake activity and magnitudes.</span>
+                <strong>Global Seismic &amp; Volcanic Monitor</strong>
+                <span>Explore global earthquakes, volcanoes and reported eruptions.</span>
               </span>
               <span className="system-choice-arrow" aria-hidden="true">↗</span>
             </button>
