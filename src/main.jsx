@@ -2355,16 +2355,93 @@ function App() {
     const selectedQuake = quakeEvents.find((event) => event.id === quakeSelectedId) || null;
     const selectedProperties = selectedQuake?.properties || null;
     const selectedCoordinates = selectedQuake?.geometry?.coordinates || [];
-    const selectQuake = (event) => {
-      if (!event) return;
-      setQuakeSelectedId(event.id);
-      const coordinates = event.geometry?.coordinates || [];
-      const longitude = Number(coordinates[0]);
-      const latitude = Number(coordinates[1]);
+    const selectedVolcanoPoint = [
+      ...volcanoMapPoints,
+      ...volcanoActivityRows,
+      ...volcanoSitesWithAlerts.map((site) => ({ ...site, id: 'volcano-site-' + site.id, type: 'site' })),
+    ].find((item) => item.id === volcanoSelectedId) || null;
+    const visibleVolcanoCount = volcanoMapPoints.length;
+    const displayCount = quakeLayer === 'earthquakes' ? quakeFilteredEvents.length : visibleVolcanoCount;
+
+    const chooseQuakeLayer = (layer) => {
+      setQuakeLayer(layer);
+      setQuakeSelectedId(null);
+      setVolcanoSelectedId(null);
+      setQuakeSearch('');
+      setQuakeMapView({ zoom: 1, panX: 0, panY: 0 });
+    };
+
+    const selectMapPoint = (point) => {
+      if (!point) return;
+      if (quakeLayer === 'earthquakes') {
+        setQuakeSelectedId(point.id);
+      } else {
+        setVolcanoSelectedId(point.id);
+      }
+
+      const coordinates = point.geometry?.coordinates || [];
+      const longitude = Number(point.longitude ?? coordinates[0]);
+      const latitude = Number(point.latitude ?? coordinates[1]);
       if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
-        quakeGlobeRef.current?.pointOfView({ lat: latitude, lng: longitude, altitude: 1.35 }, reducedMotion ? 0 : 850);
+        const target = equirectangularPoint(longitude, latitude);
+        setQuakeMapView((view) => {
+          const zoom = Math.max(view.zoom, 1.65);
+          return {
+            zoom,
+            panX: (GLOBAL_MAP_WIDTH / 2 - target.x) * zoom,
+            panY: (GLOBAL_MAP_HEIGHT / 2 - target.y) * zoom,
+          };
+        });
       }
     };
+
+    const handleWorldMapPointerDown = (event) => {
+      if (event.button !== 0) return;
+      const rectangle = event.currentTarget.getBoundingClientRect();
+      quakeMapDragRef.current = {
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        width: rectangle.width || GLOBAL_MAP_WIDTH,
+        height: rectangle.height || GLOBAL_MAP_HEIGHT,
+        view: quakeMapView,
+      };
+      event.currentTarget.setPointerCapture?.(event.pointerId);
+    };
+
+    const handleWorldMapPointerMove = (event) => {
+      const drag = quakeMapDragRef.current;
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      const movedX = event.clientX - drag.startX;
+      const movedY = event.clientY - drag.startY;
+      setQuakeMapView({
+        ...drag.view,
+        panX: drag.view.panX + movedX * GLOBAL_MAP_WIDTH / drag.width,
+        panY: drag.view.panY + movedY * GLOBAL_MAP_HEIGHT / drag.height,
+      });
+    };
+
+    const handleWorldMapPointerEnd = (event) => {
+      if (quakeMapDragRef.current?.pointerId === event.pointerId) quakeMapDragRef.current = null;
+    };
+
+    const handleWorldMapWheel = (event) => {
+      event.preventDefault();
+      const direction = event.deltaY < 0 ? 1 : -1;
+      setQuakeMapView((view) => {
+        const zoom = Math.max(1, Math.min(6, view.zoom * (direction > 0 ? 1.18 : 1 / 1.18)));
+        const ratio = zoom / view.zoom;
+        return { zoom, panX: view.panX * ratio, panY: view.panY * ratio };
+      });
+    };
+
+    const zoomWorldMap = (direction) => setQuakeMapView((view) => {
+      const zoom = Math.max(1, Math.min(6, view.zoom * (direction > 0 ? 1.35 : 1 / 1.35)));
+      const ratio = zoom / view.zoom;
+      return { zoom, panX: view.panX * ratio, panY: view.panY * ratio };
+    });
+
+    const resetWorldMap = () => setQuakeMapView({ zoom: 1, panX: 0, panY: 0 });
 
     return (
       <main className="phivolcs-app">
@@ -2392,15 +2469,17 @@ function App() {
             </button>
             <div>
               <div className="phivolcs-brand-title">GLOBAL GEOHAZARDS <span>SEISMIC &amp; VOLCANIC MONITOR</span></div>
-              <div className="phivolcs-brand-sub">Worldwide earthquake and volcano activity</div>
+              <div className="phivolcs-brand-sub">Worldwide earthquake reports, volcano locations and eruption activity</div>
             </div>
           </div>
           <div className="phivolcs-header-actions">
-            <span className={quakeLoading ? 'quake-live-state is-loading' : 'quake-live-state'}>
+            <span className={(quakeLoading || (quakeLayer === 'volcanoes' && volcanoLoading)) ? 'quake-live-state is-loading' : 'quake-live-state'}>
               <span className="quake-live-dot" />
-              {(quakeLoading || (quakeLayer === 'volcanoes' && volcanoLoading)) ? 'UPDATING' : ((quakeLayer === 'earthquakes' ? quakeError : volcanoError) ? 'FEED ISSUE' : 'LIVE FEED')}
+              {(quakeLoading || (quakeLayer === 'volcanoes' && volcanoLoading))
+                ? 'UPDATING'
+                : ((quakeLayer === 'earthquakes' ? quakeError : volcanoError) ? 'FEED ISSUE' : 'LIVE FEED')}
             </span>
-            <button className="quake-refresh-button" type="button" onClick={() => { setQuakeRefreshNonce((value) => value + 1); setVolcanoRefreshNonce((value) => value + 1); }} disabled={quakeLoading || volcanoLoading} title="Fetch the latest feed">↻ <span>Refresh</span></button>
+            <button className="quake-refresh-button" type="button" onClick={() => { setQuakeRefreshNonce((value) => value + 1); setVolcanoRefreshNonce((value) => value + 1); }} disabled={quakeLoading || volcanoLoading} title="Fetch the latest feeds">↻ <span>Refresh</span></button>
           </div>
         </header>
 
@@ -2408,130 +2487,301 @@ function App() {
 
         <div className="quake-dashboard">
           <section className="quake-map-panel">
+            <div className="quake-layer-tabs" role="tablist" aria-label="Choose global hazard layer">
+              <button type="button" role="tab" aria-selected={quakeLayer === 'earthquakes'} className={quakeLayer === 'earthquakes' ? 'is-active' : ''} onClick={() => chooseQuakeLayer('earthquakes')}>
+                <span className="quake-tab-earthquake-icon">●</span> Earthquakes
+                <small>{quakeFilteredEvents.length.toLocaleString()}</small>
+              </button>
+              <button type="button" role="tab" aria-selected={quakeLayer === 'volcanoes'} className={quakeLayer === 'volcanoes' ? 'is-active' : ''} onClick={() => chooseQuakeLayer('volcanoes')}>
+                <span className="quake-tab-volcano-icon">▲</span> Volcanoes &amp; eruptions
+                <small>{volcanoActivityRows.length.toLocaleString()}</small>
+              </button>
+            </div>
+
             <div className="quake-heading">
               <div>
-                <p className="quake-eyebrow">GLOBAL SEISMICITY</p>
-                <h1>Earthquake activity</h1>
-                <p>Explore recorded earthquakes around the world. Select a marker or an event to inspect its magnitude, depth and time.</p>
+                <p className="quake-eyebrow">{quakeLayer === 'earthquakes' ? 'GLOBAL SEISMICITY' : 'GLOBAL VOLCANIC ACTIVITY'}</p>
+                <h1>{quakeLayer === 'earthquakes' ? 'Earthquake activity' : 'Volcanoes & eruption reports'}</h1>
+                <p>{quakeLayer === 'earthquakes'
+                  ? 'Recorded earthquakes around the world on a 2D map. Marker size and colour represent earthquake magnitude; select any marker for details.'
+                  : 'Explore the world’s Holocene volcanoes, NASA-curated volcanic activity reports and elevated USGS alerts. A marker identifies a volcano or reported event; it does not imply an eruption is occurring unless the source says so.'}</p>
               </div>
               <div className="quake-stats">
-                <strong>{quakeFilteredEvents.length.toLocaleString()}</strong>
-                <span>events in view</span>
-                <small>{quakeUpdatedAt ? 'Updated ' + new Date(quakeUpdatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : 'Waiting for feed'}</small>
+                <strong>{displayCount.toLocaleString()}</strong>
+                <span>{quakeLayer === 'earthquakes' ? 'matching earthquakes' : 'visible map markers'}</span>
+                <small>{quakeLayer === 'earthquakes'
+                  ? (quakeUpdatedAt ? 'Updated ' + new Date(quakeUpdatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : 'Waiting for feed')
+                  : (volcanoUpdatedAt ? 'Reports checked ' + new Date(volcanoUpdatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Waiting for volcano feeds')}</small>
               </div>
             </div>
 
             <div className="quake-map-wrap" ref={quakeStageRef}>
               <div className="quake-map-badges">
-                <span>{quakeRange === 'hour' ? 'PAST HOUR' : quakeRange === 'day' ? 'PAST 24 HOURS' : quakeRange === 'week' ? 'PAST 7 DAYS' : 'PAST 30 DAYS'}</span>
-                <span>{quakeRegion === 'philippines' ? 'PHILIPPINES FOCUS' : 'WORLDWIDE'}</span>
+                <span>{quakeLayer === 'earthquakes'
+                  ? (quakeRange === 'hour' ? 'PAST HOUR' : quakeRange === 'day' ? 'PAST 24 HOURS' : quakeRange === 'week' ? 'PAST 7 DAYS' : 'PAST 30 DAYS')
+                  : 'GLOBAL VOLCANO CATALOGUE'}</span>
+                <span>{quakeLayer === 'earthquakes'
+                  ? (quakeRegion === 'philippines' ? 'PHILIPPINES FOCUS' : 'WORLDWIDE')
+                  : 'SITES · ACTIVITY · ALERTS'}</span>
               </div>
-              <Globe
-                ref={quakeGlobeRef}
-                width={quakeStageRef.current?.clientWidth || window.innerWidth}
-                height={Math.max(430, (quakeStageRef.current?.clientHeight || window.innerHeight) - 4)}
-                backgroundColor="rgba(0,0,0,0)"
-                globeImageUrl={DAY_TEXTURE}
-                bumpImageUrl={BUMP_TEXTURE}
-                backgroundImageUrl={STAR_TEXTURE}
-                showAtmosphere
-                atmosphereColor="#6eaefc"
-                atmosphereAltitude={0.18}
-                pointsData={quakeMapEvents}
-                pointLat={(event) => Number(event.geometry.coordinates[1])}
-                pointLng={(event) => Number(event.geometry.coordinates[0])}
-                pointColor={(event) => event.id === quakeSelectedId ? '#ffffff' : earthquakeMagnitudeColor(Number(event.properties.mag))}
-                pointRadius={(event) => earthquakeMagnitudeRadius(Number(event.properties.mag)) * (event.id === quakeSelectedId ? 1.35 : 1)}
-                pointAltitude={0.015}
-                pointResolution={12}
-                pointLabel={(event) => {
-                  const properties = event.properties || {};
-                  const coordinates = event.geometry?.coordinates || [];
-                  return '<div class="globe-tooltip quake-tooltip"><strong>M ' + escapeHtml(Number(properties.mag).toFixed(1)) + ' · ' + escapeHtml(properties.place || 'Location unavailable') + '</strong><br/><span>Depth ' + escapeHtml(Number(coordinates[2]).toFixed(1)) + ' km · ' + escapeHtml(formatEarthquakeTime(properties.time)) + '</span></div>';
-                }}
-                onPointClick={selectQuake}
-                enablePointerInteraction
-              />
+
+              <div className="quake-map-controls" aria-label="Map controls">
+                <button type="button" onClick={() => zoomWorldMap(1)} aria-label="Zoom in" title="Zoom in">+</button>
+                <button type="button" onClick={() => zoomWorldMap(-1)} aria-label="Zoom out" title="Zoom out">−</button>
+                <button type="button" onClick={resetWorldMap} aria-label="Reset map view" title="Reset map view">⌖</button>
+              </div>
+
+              <svg
+                ref={quakeMapSvgRef}
+                className="quake-world-map"
+                viewBox={'0 0 ' + GLOBAL_MAP_WIDTH + ' ' + GLOBAL_MAP_HEIGHT}
+                preserveAspectRatio="xMidYMid meet"
+                role="application"
+                aria-label="Interactive two-dimensional world map of earthquake epicentres and volcanoes"
+                onPointerDown={handleWorldMapPointerDown}
+                onPointerMove={handleWorldMapPointerMove}
+                onPointerUp={handleWorldMapPointerEnd}
+                onPointerCancel={handleWorldMapPointerEnd}
+                onWheel={handleWorldMapWheel}
+              >
+                <defs>
+                  <linearGradient id="quake-ocean-gradient" x1="0" y1="0" x2="1" y2="1">
+                    <stop offset="0%" stopColor="#0d2340" />
+                    <stop offset="52%" stopColor="#09192e" />
+                    <stop offset="100%" stopColor="#061121" />
+                  </linearGradient>
+                  <radialGradient id="quake-ocean-glow">
+                    <stop offset="0%" stopColor="#1b4262" stopOpacity=".5" />
+                    <stop offset="100%" stopColor="#081425" stopOpacity="0" />
+                  </radialGradient>
+                </defs>
+                <rect x="0" y="0" width={GLOBAL_MAP_WIDTH} height={GLOBAL_MAP_HEIGHT} fill="url(#quake-ocean-gradient)" />
+                <ellipse cx="500" cy="250" rx="430" ry="260" fill="url(#quake-ocean-glow)" pointerEvents="none" />
+                <g className="quake-map-graticule" pointerEvents="none">
+                  {[-60, -30, 0, 30, 60].map((latitude) => {
+                    const point = equirectangularPoint(0, latitude);
+                    return <path key={'lat-' + latitude} d={'M0,' + point.y + 'H' + GLOBAL_MAP_WIDTH} />;
+                  })}
+                  {[-150, -120, -90, -60, -30, 0, 30, 60, 90, 120, 150].map((longitude) => {
+                    const point = equirectangularPoint(longitude, 0);
+                    return <path key={'lon-' + longitude} d={'M' + point.x + ',0V' + GLOBAL_MAP_HEIGHT} />;
+                  })}
+                </g>
+                <g className="quake-map-viewport" transform={'translate(' + quakeMapView.panX + ' ' + quakeMapView.panY + ') translate(500 250) scale(' + quakeMapView.zoom + ') translate(-500 -250)'}>
+                  <g className="quake-map-country-layer" pointerEvents="none">
+                    {quakeWorldMapPaths.map((country) => (
+                      <path key={country.id} d={country.d} className="quake-country-shape" fillRule="evenodd">
+                        <title>{country.name}</title>
+                      </path>
+                    ))}
+                  </g>
+
+                  {quakeLayer === 'earthquakes' && quakeMapEvents.map((event) => {
+                    const coordinates = event.geometry?.coordinates || [];
+                    const longitude = Number(coordinates[0]);
+                    const latitude = Number(coordinates[1]);
+                    const projected = equirectangularPoint(longitude, latitude);
+                    const magnitude = Number(event.properties?.mag);
+                    const radius = Math.max(2.1, Math.min(8, 1.8 + Math.max(0, magnitude) * .82));
+                    const selected = event.id === quakeSelectedId;
+                    return (
+                      <circle
+                        key={event.id}
+                        className={selected ? 'quake-map-marker quake-map-earthquake is-selected' : 'quake-map-marker quake-map-earthquake'}
+                        cx={projected.x}
+                        cy={projected.y}
+                        r={radius * (selected ? 1.25 : 1)}
+                        fill={selected ? '#ffffff' : earthquakeMagnitudeColor(magnitude)}
+                        stroke={selected ? '#ffffff' : 'rgba(4,9,17,.82)'}
+                        strokeWidth={selected ? 2 : 1}
+                        role="button"
+                        tabIndex={0}
+                        aria-label={'Magnitude ' + magnitude.toFixed(1) + ' earthquake: ' + (event.properties?.place || 'location unavailable')}
+                        onPointerDown={(event) => event.stopPropagation()}
+                        onClick={() => selectMapPoint(event)}
+                        onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); selectMapPoint(event); } }}
+                      >
+                        <title>{'M' + magnitude.toFixed(1) + ' · ' + (event.properties?.place || 'Location unavailable') + ' · depth ' + Number(coordinates[2]).toFixed(1) + ' km'}</title>
+                      </circle>
+                    );
+                  })}
+
+                  {quakeLayer === 'volcanoes' && volcanoMapPoints.map((point) => {
+                    const projected = equirectangularPoint(point.longitude, point.latitude);
+                    const selected = point.id === volcanoSelectedId || (point.type === 'alert' && volcanoSelectedId && point.id.endsWith(volcanoSelectedId));
+                    const colour = point.type === 'activity'
+                      ? '#ff795c'
+                      : point.type === 'alert'
+                        ? volcanoAlertColour(point)
+                        : (showUSGSVolcanoAlerts && point.alert ? volcanoAlertColour(point.alert) : '#86add4');
+                    const radius = point.type === 'activity' ? 5.1 : point.type === 'alert' ? 4.7 : 2.2;
+                    return (
+                      <circle
+                        key={point.id}
+                        className={selected ? 'quake-map-marker quake-map-volcano is-selected' : 'quake-map-marker quake-map-volcano'}
+                        cx={projected.x}
+                        cy={projected.y}
+                        r={radius * (selected ? 1.35 : 1)}
+                        fill={colour}
+                        stroke={selected ? '#ffffff' : 'rgba(4,9,17,.82)'}
+                        strokeWidth={selected ? 2 : 0.8}
+                        role="button"
+                        tabIndex={0}
+                        aria-label={point.type === 'activity'
+                          ? 'Reported volcanic activity: ' + point.name
+                          : point.type === 'alert'
+                            ? point.name + ', USGS alert ' + point.alertLevel
+                            : point.name + ', volcano location'}
+                        onPointerDown={(event) => event.stopPropagation()}
+                        onClick={() => selectMapPoint(point)}
+                        onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); selectMapPoint(point); } }}
+                      >
+                        <title>{point.name + (point.type === 'activity' ? ' · reported volcanic activity' : point.type === 'alert' ? ' · USGS ' + point.alertLevel : point.alert ? ' · USGS ' + point.alert.alert_level : ' · Holocene volcano catalogue')}</title>
+                      </circle>
+                    );
+                  })}
+                </g>
+              </svg>
+
               <div className="quake-map-footer">
-                <span><i className="quake-legend-dot quake-mag-small" /> M 0–2.4</span>
-                <span><i className="quake-legend-dot quake-mag-mid" /> M 2.5–4.4</span>
-                <span><i className="quake-legend-dot quake-mag-high" /> M 4.5–5.9</span>
-                <span><i className="quake-legend-dot quake-mag-major" /> M 6.0+</span>
+                {quakeLayer === 'earthquakes' ? (
+                  <>
+                    <span><i className="quake-legend-dot quake-mag-small" /> M 0–2.4</span>
+                    <span><i className="quake-legend-dot quake-mag-mid" /> M 2.5–4.4</span>
+                    <span><i className="quake-legend-dot quake-mag-high" /> M 4.5–5.9</span>
+                    <span><i className="quake-legend-dot quake-mag-major" /> M 6.0+</span>
+                  </>
+                ) : (
+                  <>
+                    <span><i className="quake-legend-dot quake-mag-small" /> Volcano location</span>
+                    <span><i className="quake-legend-dot quake-mag-high" /> Reported activity (NASA)</span>
+                    <span><i className="quake-legend-dot quake-mag-major" /> Elevated USGS alert (US only)</span>
+                  </>
+                )}
               </div>
-              {quakeLoading && quakeEvents.length === 0 && (
+
+              {quakeLayer === 'earthquakes' && quakeLoading && quakeEvents.length === 0 && (
                 <div className="quake-map-message"><span className="quake-spinner" /> Loading global earthquake feed…</div>
               )}
-              {quakeError && (
+              {quakeLayer === 'earthquakes' && quakeError && (
                 <div className="quake-map-message quake-map-error">
                   <strong>Earthquake feed unavailable</strong>
                   <span>{quakeError}</span>
                   <button type="button" onClick={() => setQuakeRefreshNonce((value) => value + 1)}>Retry feed</button>
                 </div>
               )}
+              {quakeLayer === 'volcanoes' && volcanoLoading && volcanoMapPoints.length === 0 && (
+                <div className="quake-map-message"><span className="quake-spinner" /> Loading global volcano locations and activity reports…</div>
+              )}
+              {quakeLayer === 'volcanoes' && volcanoError && volcanoMapPoints.length === 0 && !volcanoLoading && (
+                <div className="quake-map-message quake-map-error">
+                  <strong>Volcano data unavailable</strong>
+                  <span>{volcanoError}</span>
+                  <button type="button" onClick={() => setVolcanoRefreshNonce((value) => value + 1)}>Retry volcano feeds</button>
+                </div>
+              )}
             </div>
 
-            <div className="quake-magnitude-note">
-              <span className="quake-info-icon">i</span>
-              <p><strong>How to read the scale:</strong> magnitude measures an earthquake at its source, not how strongly every location shakes. Each whole magnitude step represents about 10× the measured wave amplitude and roughly 32× the released energy. Local shaking also depends on distance, depth and ground conditions.</p>
-              <a href="https://www.usgs.gov/programs/earthquake-hazards/earthquake-magnitude-energy-release-and-shaking-intensity" target="_blank" rel="noreferrer">Magnitude guide ↗</a>
-            </div>
+            {quakeLayer === 'earthquakes' ? (
+              <div className="quake-magnitude-note">
+                <span className="quake-info-icon">i</span>
+                <p><strong>How to read the scale:</strong> magnitude measures an earthquake at its source, not how strongly every location shakes. Each whole magnitude step represents about 10× the measured wave amplitude and roughly 32× the released energy. Local shaking also depends on distance, depth and ground conditions.</p>
+                <a href="https://www.usgs.gov/programs/earthquake-hazards/earthquake-magnitude-energy-release-and-shaking-intensity" target="_blank" rel="noreferrer">Magnitude guide ↗</a>
+              </div>
+            ) : (
+              <div className="quake-magnitude-note">
+                <span className="quake-info-icon">i</span>
+                <p><strong>Important:</strong> the Smithsonian catalogue marks known Holocene volcano locations; it does not mean all are currently erupting. NASA EONET reports curated active events, while the USGS alert feed covers volcanoes monitored by the United States. Feed coverage is not globally uniform.</p>
+                <a href="https://volcano.si.edu/database/webservices.cfm" target="_blank" rel="noreferrer">Smithsonian data documentation ↗</a>
+              </div>
+            )}
           </section>
 
           <aside className="quake-sidebar">
             <section className="quake-side-section quake-filter-panel">
               <div className="quake-section-top">
                 <div>
-                  <p className="quake-eyebrow">MONITOR CONTROLS</p>
-                  <h2>Filter activity</h2>
+                  <p className="quake-eyebrow">{quakeLayer === 'earthquakes' ? 'MONITOR CONTROLS' : 'VOLCANO LAYERS'}</p>
+                  <h2>{quakeLayer === 'earthquakes' ? 'Filter earthquakes' : 'Choose map layers'}</h2>
                 </div>
-                <span className="quake-count-pill">{quakeFilteredEvents.length.toLocaleString()}</span>
+                <span className="quake-count-pill">{displayCount.toLocaleString()}</span>
               </div>
 
-              <div className="quake-filter-grid">
-                <label>
-                  <span>Time window</span>
-                  <select value={quakeRange} onChange={(event) => setQuakeRange(event.target.value)}>
-                    <option value="hour">Past hour</option>
-                    <option value="day">Past 24 hours</option>
-                    <option value="week">Past 7 days</option>
-                    <option value="month">Past 30 days</option>
-                  </select>
-                </label>
-                <label>
-                  <span>Minimum magnitude</span>
-                  <select value={quakeMinMagnitude} onChange={(event) => setQuakeMinMagnitude(event.target.value)}>
-                    <option value="0">All reported magnitudes</option>
-                    <option value="2.5">M 2.5 and above</option>
-                    <option value="4.5">M 4.5 and above</option>
-                    <option value="6">M 6.0 and above</option>
-                  </select>
-                </label>
-                <label>
-                  <span>Region</span>
-                  <select value={quakeRegion} onChange={(event) => setQuakeRegion(event.target.value)}>
-                    <option value="world">Worldwide</option>
-                    <option value="philippines">Philippines focus</option>
-                  </select>
-                </label>
-                <label>
-                  <span>Sort events</span>
-                  <select value={quakeSort} onChange={(event) => setQuakeSort(event.target.value)}>
-                    <option value="newest">Newest first</option>
-                    <option value="largest">Largest magnitude</option>
-                  </select>
-                </label>
-              </div>
-              <label className="quake-search-label">
-                <span>Search location</span>
-                <input value={quakeSearch} onChange={(event) => setQuakeSearch(event.target.value)} placeholder="e.g. Philippines, Japan, Alaska…" />
-              </label>
-              <label className="quake-auto-refresh">
-                <input type="checkbox" checked={quakeAutoRefresh} onChange={(event) => setQuakeAutoRefresh(event.target.checked)} />
-                <span><strong>Auto-refresh</strong><small>Check for new data every 60 seconds</small></span>
-              </label>
+              {quakeLayer === 'earthquakes' ? (
+                <>
+                  <div className="quake-filter-grid">
+                    <label>
+                      <span>Time window</span>
+                      <select value={quakeRange} onChange={(event) => setQuakeRange(event.target.value)}>
+                        <option value="hour">Past hour</option>
+                        <option value="day">Past 24 hours</option>
+                        <option value="week">Past 7 days</option>
+                        <option value="month">Past 30 days</option>
+                      </select>
+                    </label>
+                    <label>
+                      <span>Minimum magnitude</span>
+                      <select value={quakeMinMagnitude} onChange={(event) => setQuakeMinMagnitude(event.target.value)}>
+                        <option value="0">All reported magnitudes</option>
+                        <option value="2.5">M 2.5 and above</option>
+                        <option value="4.5">M 4.5 and above</option>
+                        <option value="6">M 6.0 and above</option>
+                      </select>
+                    </label>
+                    <label>
+                      <span>Region</span>
+                      <select value={quakeRegion} onChange={(event) => setQuakeRegion(event.target.value)}>
+                        <option value="world">Worldwide</option>
+                        <option value="philippines">Philippines focus</option>
+                      </select>
+                    </label>
+                    <label>
+                      <span>Sort events</span>
+                      <select value={quakeSort} onChange={(event) => setQuakeSort(event.target.value)}>
+                        <option value="newest">Newest first</option>
+                        <option value="largest">Largest magnitude</option>
+                      </select>
+                    </label>
+                  </div>
+                  <label className="quake-search-label">
+                    <span>Search location</span>
+                    <input value={quakeSearch} onChange={(event) => setQuakeSearch(event.target.value)} placeholder="e.g. Philippines, Japan, Alaska…" />
+                  </label>
+                  <label className="quake-auto-refresh">
+                    <input type="checkbox" checked={quakeAutoRefresh} onChange={(event) => setQuakeAutoRefresh(event.target.checked)} />
+                    <span><strong>Auto-refresh earthquakes</strong><small>Check for new seismic data every 60 seconds</small></span>
+                  </label>
+                </>
+              ) : (
+                <>
+                  <label className="quake-layer-option">
+                    <input type="checkbox" checked={showAllVolcanoSites} onChange={(event) => setShowAllVolcanoSites(event.target.checked)} />
+                    <span><strong>Volcano locations</strong><small>Smithsonian catalogue of known Holocene volcanoes</small></span>
+                    <b>{volcanoSites.length.toLocaleString()}</b>
+                  </label>
+                  <label className="quake-layer-option">
+                    <input type="checkbox" checked={showReportedActivity} onChange={(event) => setShowReportedActivity(event.target.checked)} />
+                    <span><strong>Reported volcanic activity</strong><small>NASA EONET open events, not a complete global eruption log</small></span>
+                    <b>{eruptionEvents.length.toLocaleString()}</b>
+                  </label>
+                  <label className="quake-layer-option">
+                    <input type="checkbox" checked={showUSGSVolcanoAlerts} onChange={(event) => setShowUSGSVolcanoAlerts(event.target.checked)} />
+                    <span><strong>Elevated volcano alerts</strong><small>USGS-monitored US volcanoes only</small></span>
+                    <b>{volcanoAlerts.length.toLocaleString()}</b>
+                  </label>
+                  <label className="quake-search-label">
+                    <span>Search volcano or region</span>
+                    <input value={quakeSearch} onChange={(event) => setQuakeSearch(event.target.value)} placeholder="e.g. Kīlauea, Japan, Indonesia…" />
+                  </label>
+                  <label className="quake-auto-refresh">
+                    <input type="checkbox" checked={volcanoAutoRefresh} onChange={(event) => setVolcanoAutoRefresh(event.target.checked)} />
+                    <span><strong>Auto-refresh activity and alerts</strong><small>Check the live event sources every 5 minutes</small></span>
+                  </label>
+                </>
+              )}
             </section>
 
-            {selectedQuake && selectedProperties && (
+            {quakeLayer === 'earthquakes' && selectedQuake && selectedProperties && (
               <section className="quake-selected-card">
                 <div className="quake-selected-top">
                   <span>SELECTED EARTHQUAKE</span>
@@ -2556,52 +2806,136 @@ function App() {
               </section>
             )}
 
-            <section className="quake-side-section quake-event-panel">
-              <div className="quake-section-top quake-event-heading">
-                <div>
-                  <p className="quake-eyebrow">RECENT EVENTS</p>
-                  <h2>{quakeSort === 'largest' ? 'Largest earthquakes' : 'Latest earthquakes'}</h2>
+            {quakeLayer === 'volcanoes' && selectedVolcanoPoint && (
+              <section className="quake-selected-card">
+                <div className="quake-selected-top">
+                  <span>{selectedVolcanoPoint.type === 'alert' ? 'USGS VOLCANO ALERT' : selectedVolcanoPoint.type === 'activity' ? 'REPORTED VOLCANIC ACTIVITY' : 'VOLCANO LOCATION'}</span>
+                  <button type="button" onClick={() => setVolcanoSelectedId(null)} aria-label="Clear selected volcano">×</button>
                 </div>
-                {quakeLoading && quakeEvents.length > 0 && <span className="quake-mini-spinner" title="Updating feed" />}
-              </div>
+                <div className="quake-selected-body">
+                  <div className="quake-selected-magnitude" style={{ '--quake-color': selectedVolcanoPoint.type === 'alert' ? volcanoAlertColour(selectedVolcanoPoint) : selectedVolcanoPoint.type === 'activity' ? '#ff795c' : '#8bb6e2' }}>
+                    <strong>{selectedVolcanoPoint.type === 'alert' ? String(selectedVolcanoPoint.alertLevel || 'ALERT').toUpperCase().replace('ADVISORY', 'ADV').replace('WARNING', 'WARN') : selectedVolcanoPoint.type === 'activity' ? 'LIVE' : 'VOL'}</strong>
+                    <small>{selectedVolcanoPoint.type === 'alert' ? selectedVolcanoPoint.colorCode || 'USGS LEVEL' : selectedVolcanoPoint.type === 'activity' ? 'NASA EONET' : 'SMITHSONIAN'}</small>
+                  </div>
+                  <div className="quake-selected-location">
+                    <h3>{selectedVolcanoPoint.name || 'Volcano'}</h3>
+                    {selectedVolcanoPoint.country && <p>{selectedVolcanoPoint.country}{selectedVolcanoPoint.region ? ' · ' + selectedVolcanoPoint.region : ''}</p>}
+                    {selectedVolcanoPoint.type === 'alert' && <p>USGS alert level <strong>{selectedVolcanoPoint.alertLevel}</strong> · {selectedVolcanoPoint.colorCode || 'colour not reported'}</p>}
+                    {selectedVolcanoPoint.type === 'activity' && <p>{selectedVolcanoPoint.description || 'Curated open volcanic activity event.'}</p>}
+                    {selectedVolcanoPoint.type === 'site' && <p>{selectedVolcanoPoint.volcanoType} · last recorded eruption: <strong>{selectedVolcanoPoint.lastEruption}</strong></p>}
+                    {selectedVolcanoPoint.date && <p>{formatEarthquakeTime(selectedVolcanoPoint.date)}</p>}
+                  </div>
+                </div>
+                {Number.isFinite(Number(selectedVolcanoPoint.latitude)) && Number.isFinite(Number(selectedVolcanoPoint.longitude)) && (
+                  <div className="quake-selected-metrics">
+                    <span><small>LATITUDE</small><strong>{Number(selectedVolcanoPoint.latitude).toFixed(3)}°</strong></span>
+                    <span><small>LONGITUDE</small><strong>{Number(selectedVolcanoPoint.longitude).toFixed(3)}°</strong></span>
+                    <span><small>SOURCE</small><strong>{selectedVolcanoPoint.type === 'alert' ? 'USGS' : selectedVolcanoPoint.type === 'activity' ? 'NASA' : 'GVP'}</strong></span>
+                  </div>
+                )}
+                <a className="quake-event-source-link" href={selectedVolcanoPoint.url || 'https://volcano.si.edu/'} target="_blank" rel="noreferrer">Open source details ↗</a>
+              </section>
+            )}
 
-              {quakeError && quakeEvents.length > 0 && <p className="quake-stale-notice">Showing the last successful update. {quakeError}</p>}
-              {quakeFilteredEvents.length === 0 && !quakeLoading && !quakeError && (
-                <div className="quake-empty">No recorded events match these filters. Try a wider time window or a lower magnitude threshold.</div>
-              )}
-              {quakeFilteredEvents.length === 0 && quakeLoading && (
-                <div className="quake-empty">Loading events…</div>
-              )}
-              <div className="quake-event-list">
-                {quakeListEvents.map((event) => {
-                  const properties = event.properties || {};
-                  const coordinates = event.geometry?.coordinates || [];
-                  const isSelected = event.id === quakeSelectedId;
-                  const magnitude = Number(properties.mag);
-                  return (
-                    <button key={event.id} type="button" className={isSelected ? 'quake-event-row is-selected' : 'quake-event-row'} onClick={() => selectQuake(event)} aria-pressed={isSelected}>
-                      <span className="quake-event-mag" style={{ '--quake-color': earthquakeMagnitudeColor(magnitude), '--quake-radius': (Math.max(7, earthquakeMagnitudeRadius(magnitude) * 18)) + 'px' }}>
-                        <strong>{magnitude.toFixed(1)}</strong>
-                      </span>
-                      <span className="quake-event-copy">
-                        <strong>{properties.place || 'Location unavailable'}</strong>
-                        <small>{formatEarthquakeTime(properties.time)}</small>
-                        <small>Depth {Number(coordinates[2]).toFixed(1)} km</small>
-                      </span>
-                      <span className="quake-event-arrow" aria-hidden="true">↗</span>
-                    </button>
-                  );
-                })}
-              </div>
-              {quakeFilteredEvents.length > quakeListEvents.length && <p className="quake-list-limit">Showing the first {quakeListEvents.length} of {quakeFilteredEvents.length} matching events.</p>}
-            </section>
+            {quakeLayer === 'earthquakes' ? (
+              <section className="quake-side-section quake-event-panel">
+                <div className="quake-section-top quake-event-heading">
+                  <div>
+                    <p className="quake-eyebrow">RECENT EVENTS</p>
+                    <h2>{quakeSort === 'largest' ? 'Largest earthquakes' : 'Latest earthquakes'}</h2>
+                  </div>
+                  {quakeLoading && quakeEvents.length > 0 && <span className="quake-mini-spinner" title="Updating feed" />}
+                </div>
+
+                {quakeError && quakeEvents.length > 0 && <p className="quake-stale-notice">Showing the last successful update. {quakeError}</p>}
+                {quakeFilteredEvents.length === 0 && !quakeLoading && !quakeError && (
+                  <div className="quake-empty">No recorded events match these filters. Try a wider time window or a lower magnitude threshold.</div>
+                )}
+                {quakeFilteredEvents.length === 0 && quakeLoading && (
+                  <div className="quake-empty">Loading events…</div>
+                )}
+                <div className="quake-event-list">
+                  {quakeListEvents.map((event) => {
+                    const properties = event.properties || {};
+                    const coordinates = event.geometry?.coordinates || [];
+                    const isSelected = event.id === quakeSelectedId;
+                    const magnitude = Number(properties.mag);
+                    return (
+                      <button key={event.id} type="button" className={isSelected ? 'quake-event-row is-selected' : 'quake-event-row'} onClick={() => selectMapPoint(event)} aria-pressed={isSelected}>
+                        <span className="quake-event-mag" style={{ '--quake-color': earthquakeMagnitudeColor(magnitude), '--quake-radius': (Math.max(7, earthquakeMagnitudeRadius(magnitude) * 18)) + 'px' }}>
+                          <strong>{magnitude.toFixed(1)}</strong>
+                        </span>
+                        <span className="quake-event-copy">
+                          <strong>{properties.place || 'Location unavailable'}</strong>
+                          <small>{formatEarthquakeTime(properties.time)}</small>
+                          <small>Depth {Number(coordinates[2]).toFixed(1)} km</small>
+                        </span>
+                        <span className="quake-event-arrow" aria-hidden="true">↗</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                {quakeFilteredEvents.length > quakeListEvents.length && <p className="quake-list-limit">Showing the first {quakeListEvents.length} of {quakeFilteredEvents.length} matching events.</p>}
+              </section>
+            ) : (
+              <section className="quake-side-section quake-event-panel">
+                <div className="quake-section-top quake-event-heading">
+                  <div>
+                    <p className="quake-eyebrow">CURRENT REPORTS</p>
+                    <h2>Activity &amp; alert reports</h2>
+                  </div>
+                  {volcanoLoading && <span className="quake-mini-spinner" title="Updating volcano feeds" />}
+                </div>
+                {volcanoError && <p className="quake-stale-notice">{volcanoError}</p>}
+                {volcanoActivityRows.length === 0 && !volcanoLoading && (
+                  <div className="quake-empty">No open volcanic activity reports or elevated USGS alerts were returned by the connected feeds. The volcano-location catalogue can still be explored on the map.</div>
+                )}
+                <div className="quake-event-list">
+                  {volcanoActivityRows.slice(0, 100).map((item) => {
+                    const isSelected = item.id === volcanoSelectedId;
+                    const itemColour = item.type === 'alert' ? volcanoAlertColour(item) : '#ff795c';
+                    const label = item.type === 'alert' ? String(item.alertLevel || 'ALERT').toUpperCase().replace('ADVISORY', 'ADV').replace('WARNING', 'WARN') : 'ACT';
+                    const selectable = item.type === 'activity'
+                      ? { ...item, id: 'volcano-activity-' + item.id, type: 'activity' }
+                      : item;
+                    return (
+                      <button key={item.id} type="button" className={isSelected ? 'quake-event-row is-selected' : 'quake-event-row'} onClick={() => selectMapPoint(selectable)} aria-pressed={isSelected}>
+                        <span className="quake-event-mag quake-volcano-event-badge" style={{ '--quake-color': itemColour }}>
+                          <strong>{label}</strong>
+                        </span>
+                        <span className="quake-event-copy">
+                          <strong>{item.name}</strong>
+                          <small>{item.type === 'alert' ? 'USGS ' + item.colorCode + ' · ' + item.alertLevel : 'NASA EONET · reported volcanic activity'}</small>
+                          <small>{item.date ? formatEarthquakeTime(item.date) : (item.country || 'Location not specified')}</small>
+                        </span>
+                        <span className="quake-event-arrow" aria-hidden="true">↗</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                {volcanoActivityRows.length > 100 && <p className="quake-list-limit">Showing the latest 100 activity/alert reports.</p>}
+                <p className="quake-list-limit">The global eruption/activity feed is curated and not exhaustive. USGS alert levels apply only to volcanoes covered by US monitoring.</p>
+              </section>
+            )}
 
             <section className="quake-source-panel">
               <div className="quake-source-title"><span className="quake-source-status" /> DATA SOURCES</div>
-              <p><strong>Global feed:</strong> USGS earthquake GeoJSON. Updated by the provider about once per minute.</p>
-              <a href={USGS_EARTHQUAKE_MAP_URL} target="_blank" rel="noreferrer">USGS Latest Earthquakes ↗</a>
-              <a href={PHIVOLCS_EARTHQUAKE_BULLETINS_URL} target="_blank" rel="noreferrer">PHIVOLCS official Philippines bulletins ↗</a>
-              <small>This is a public-information viewer, not an earthquake early-warning system. Feed coverage and event magnitudes may be revised after initial publication.</small>
+              {quakeLayer === 'earthquakes' ? (
+                <>
+                  <p><strong>Earthquakes:</strong> USGS global GeoJSON summary feeds, checked approximately once a minute.</p>
+                  <a href={USGS_EARTHQUAKE_MAP_URL} target="_blank" rel="noreferrer">USGS Latest Earthquakes ↗</a>
+                </>
+              ) : (
+                <>
+                  <p><strong>Volcano locations:</strong> Smithsonian Global Volcanism Program's Holocene volcano catalogue.</p>
+                  <a href="https://volcano.si.edu/database/webservices.cfm" target="_blank" rel="noreferrer">Smithsonian GVP web services ↗</a>
+                  <p><strong>Reported volcanic activity:</strong> NASA's open EONET events. Elevated alert levels are supplied separately by the USGS and only cover volcanoes monitored by that agency.</p>
+                  <a href="https://eonet.gsfc.nasa.gov/docs/v3" target="_blank" rel="noreferrer">NASA EONET API documentation ↗</a>
+                  <a href="https://volcanoes.usgs.gov/hans-public/api/volcano/default" target="_blank" rel="noreferrer">USGS Volcano API documentation ↗</a>
+                </>
+              )}
+              <a href={PHIVOLCS_EARTHQUAKE_BULLETINS_URL} target="_blank" rel="noreferrer">Philippine PHIVOLCS bulletins ↗</a>
+              <small>This is an informational viewer, not an early-warning service. Feeds may be delayed, incomplete or revised. Check the originating agency for official warnings.</small>
             </section>
           </aside>
         </div>
