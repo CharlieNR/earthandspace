@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
+import { ShapeUtils, Vector2 } from 'three';
 import Globe from 'react-globe.gl';
 import * as topojson from 'topojson-client';
 import { EVENTS, GEOLOGIC_FACTS, PLATE_BOUNDARIES, PLATES, PERIODS } from './data';
@@ -446,7 +447,7 @@ function countryKey(country) {
 }
 
 function countryCacheKey(country, age) {
-  return 'country:' + countryKey(country) + ':' + modelForAge(age) + ':' + String(Math.round(age));
+  return 'country-territory-pieces-v2:' + countryKey(country) + ':' + modelForAge(age) + ':' + String(Math.round(age));
 }
 
 function featureCentroid(feature) {
@@ -466,42 +467,140 @@ function featureCentroid(feature) {
   return { lat, lng };
 }
 
-async function fetchCountryReconstructionWithRetry(country, age, signal) {
+
+/*
+ * Triangulate a country's exact present-day polygons, then subdivide each
+ * triangle into small geographic pieces. GPlates assigns a reconstruction plate
+ * to each feature; keeping these features small means one country that crosses
+ * several plates no longer gets moved as one giant shape. Because the triangles
+ * are built only from the country's own polygon, they cannot include the rest
+ * of a continent just because it happens to share the same tectonic plate.
+ */
+function countryTerritoryPlatePieces(geometry, maximumEdgeDegrees = 1.15) {
+  const polygons = [];
+  const collectPolygons = (item) => {
+    if (!item) return;
+    if (item.type === 'Polygon') {
+      polygons.push(item.coordinates);
+    } else if (item.type === 'MultiPolygon') {
+      item.coordinates.forEach((coordinates) => polygons.push(coordinates));
+    } else if (item.type === 'GeometryCollection') {
+      item.geometries?.forEach(collectPolygons);
+    }
+  };
+  collectPolygons(geometry);
+
+  const pieces = [];
+  const samePoint = (a, b) => Math.abs(a[0] - b[0]) < 1e-9 && Math.abs(a[1] - b[1]) < 1e-9;
+
+  const openRing = (ring, referenceLongitude = null) => {
+    if (!Array.isArray(ring)) return [];
+    let points = ring
+      .filter((point) => Array.isArray(point) && Number.isFinite(point[0]) && Number.isFinite(point[1]))
+      .map((point) => [point[0], point[1]]);
+    if (points.length > 1 && samePoint(points[0], points[points.length - 1])) {
+      points = points.slice(0, -1);
+    }
+    if (points.length < 3) return [];
+
+    let firstLongitude = points[0][0];
+    if (Number.isFinite(referenceLongitude)) {
+      firstLongitude += 360 * Math.round((referenceLongitude - firstLongitude) / 360);
+    }
+    const unwrapped = [[firstLongitude, points[0][1]]];
+    let previousLongitude = firstLongitude;
+    for (let index = 1; index < points.length; index += 1) {
+      let longitude = points[index][0];
+      while (longitude - previousLongitude > 180) longitude -= 360;
+      while (longitude - previousLongitude < -180) longitude += 360;
+      unwrapped.push([longitude, points[index][1]]);
+      previousLongitude = longitude;
+    }
+    return unwrapped;
+  };
+
+  const edgeLength = (a, b) => {
+    const averageLatitude = ((a[1] + b[1]) / 2) * Math.PI / 180;
+    const deltaLongitude = (b[0] - a[0]) * Math.cos(averageLatitude);
+    const deltaLatitude = b[1] - a[1];
+    return Math.hypot(deltaLongitude, deltaLatitude);
+  };
+
+  const normalizePieceLongitudes = (triangle) => {
+    const averageLongitude = triangle.reduce((sum, point) => sum + point[0], 0) / triangle.length;
+    const shift = 360 * Math.floor((averageLongitude + 180) / 360);
+    return triangle.map((point) => [point[0] - shift, point[1]]);
+  };
+
+  const subdivideTriangle = (triangle, output, depth = 0) => {
+    const edges = [
+      { a: 0, b: 1, c: 2, length: edgeLength(triangle[0], triangle[1]) },
+      { a: 1, b: 2, c: 0, length: edgeLength(triangle[1], triangle[2]) },
+      { a: 2, b: 0, c: 1, length: edgeLength(triangle[2], triangle[0]) },
+    ].sort((a, b) => b.length - a.length);
+    const longest = edges[0];
+
+    if (longest.length <= maximumEdgeDegrees || depth >= 15) {
+      const normalized = normalizePieceLongitudes(triangle);
+      if (Math.abs(
+        (normalized[0][0] * (normalized[1][1] - normalized[2][1]) +
+         normalized[1][0] * (normalized[2][1] - normalized[0][1]) +
+         normalized[2][0] * (normalized[0][1] - normalized[1][1])) / 2
+      ) > 1e-10) {
+        output.push({
+          type: 'Polygon',
+          coordinates: [[normalized[0], normalized[1], normalized[2], normalized[0]]],
+        });
+      }
+      return;
+    }
+
+    const a = triangle[longest.a];
+    const b = triangle[longest.b];
+    const c = triangle[longest.c];
+    const midpoint = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+    subdivideTriangle([a, midpoint, c], output, depth + 1);
+    subdivideTriangle([midpoint, b, c], output, depth + 1);
+  };
+
+  for (const polygonRings of polygons) {
+    if (!Array.isArray(polygonRings) || !polygonRings.length) continue;
+    const outer = openRing(polygonRings[0]);
+    if (outer.length < 3) continue;
+    const outerMeanLongitude = outer.reduce((sum, point) => sum + point[0], 0) / outer.length;
+    const holes = polygonRings.slice(1)
+      .map((ring) => openRing(ring, outerMeanLongitude))
+      .filter((ring) => ring.length >= 3);
+
+    const contourVectors = outer.map((point) => new Vector2(point[0], point[1]));
+    const holeVectors = holes.map((ring) => ring.map((point) => new Vector2(point[0], point[1])));
+    const flatVertices = [...contourVectors, ...holeVectors.flat()];
+    const triangles = ShapeUtils.triangulateShape(contourVectors, holeVectors);
+
+    for (const indices of triangles) {
+      const triangle = indices.map((index) => [flatVertices[index].x, flatVertices[index].y]);
+      if (triangle.length === 3) subdivideTriangle(triangle, pieces);
+    }
+  }
+
+  return pieces;
+}
+
+async function reconstructCountryPieceBatch(country, age, pieces, batchIndex, batchCount, signal) {
+  const countryName = country?.properties?.name || countryKey(country);
   let lastError;
+
   for (let attempt = 1; attempt <= FRAME_REQUEST_RETRIES; attempt += 1) {
     if (signal?.aborted) throw new DOMException('Request aborted', 'AbortError');
-    diagnostic('info', 'COUNTRY', 'Tracking reconstruction attempt ' + attempt + '/' + FRAME_REQUEST_RETRIES, {
-      country: country?.properties?.name,
-      id: countryKey(country),
-      age,
-      model: modelForAge(age),
-    });
     try {
-      const countryName = country?.properties?.name || countryKey(country);
-      const polygonGeometries = [];
-      const collectPolygons = (geometry) => {
-        if (!geometry) return;
-        if (geometry.type === 'Polygon') {
-          polygonGeometries.push(geometry);
-        } else if (geometry.type === 'MultiPolygon') {
-          geometry.coordinates.forEach((coordinates) => {
-            polygonGeometries.push({ type: 'Polygon', coordinates });
-          });
-        } else if (geometry.type === 'GeometryCollection') {
-          geometry.geometries.forEach(collectPolygons);
-        }
-      };
-      collectPolygons(country.geometry);
-      if (!polygonGeometries.length) {
-        throw new Error('The selected country has no polygon land geometry to track');
-      }
+      const startIndex = batchIndex * pieces.length;
       const featureCollection = {
         type: 'FeatureCollection',
-        features: polygonGeometries.map((geometry, index) => ({
+        features: pieces.map((piece, index) => ({
           type: 'Feature',
-          id: String(country?.id || countryName) + '-' + index,
-          properties: { name: countryName, sourceCountryId: country?.id || null },
-          geometry,
+          id: String(country?.id || countryName) + '-territory-' + (startIndex + index),
+          properties: { name: countryName, territoryPiece: startIndex + index },
+          geometry: piece,
         })),
       };
       const payload = new URLSearchParams();
@@ -510,10 +609,12 @@ async function fetchCountryReconstructionWithRetry(country, age, signal) {
       payload.set('model', modelForAge(age));
       payload.set('anchor_plate_id', '0');
 
-      diagnostic('info', 'COUNTRY', 'Tracking request start', {
-        country: country?.properties?.name,
+      diagnostic('info', 'COUNTRY', 'Reconstructing territory pieces', {
+        country: countryName,
         age,
-        payloadBytes: payload.toString().length,
+        batch: (batchIndex + 1) + '/' + batchCount,
+        pieces: pieces.length,
+        attempt,
       });
 
       const response = await fetchWithTimeout(GPLATES_COUNTRY_URL, {
@@ -526,12 +627,6 @@ async function fetchCountryReconstructionWithRetry(country, age, signal) {
         signal,
       });
       const textBody = await response.text();
-      diagnostic(response.ok ? 'info' : 'error', 'COUNTRY', 'Tracking response received', {
-        country: country?.properties?.name,
-        age,
-        status: response.status,
-        bytes: textBody.length,
-      });
       if (!response.ok) throw new Error('GPlates country HTTP ' + response.status + ': ' + textBody.slice(0, 250));
 
       const reconstructed = JSON.parse(textBody);
@@ -539,24 +634,23 @@ async function fetchCountryReconstructionWithRetry(country, age, signal) {
         .filter((feature) => feature.geometry)
         .map((feature) => ({
           type: 'Feature',
-          properties: { trackedCountry: country?.properties?.name || countryKey(country) },
+          properties: {
+            ...(feature.properties || {}),
+            trackedCountry: countryName,
+          },
           geometry: feature.geometry,
           __layer: 'tracked',
         }));
 
-      if (!features.length) throw new Error('No reconstructed country geometry returned');
-      diagnostic('info', 'COUNTRY', 'Tracking reconstruction complete', {
-        country: country?.properties?.name,
-        age,
-        features: features.length,
-      });
+      if (!features.length) throw new Error('No reconstructed country pieces returned for batch ' + (batchIndex + 1));
       return features;
     } catch (error) {
       lastError = error;
       if (error?.name === 'AbortError' && signal?.aborted) throw error;
-      diagnostic('warn', 'COUNTRY', 'Tracking attempt failed', {
-        country: country?.properties?.name,
+      diagnostic('warn', 'COUNTRY', 'Territory-piece batch failed', {
+        country: countryName,
         age,
+        batch: (batchIndex + 1) + '/' + batchCount,
         attempt,
         name: error?.name,
         message: error?.message,
@@ -564,7 +658,69 @@ async function fetchCountryReconstructionWithRetry(country, age, signal) {
       if (attempt < FRAME_REQUEST_RETRIES) await sleep(250 * attempt);
     }
   }
-  throw lastError || new Error('Country tracking request failed');
+
+  throw lastError || new Error('Country territory-piece reconstruction failed');
+}
+
+async function fetchCountryReconstructionWithRetry(country, age, signal) {
+  const countryName = country?.properties?.name || countryKey(country);
+  const allPieces = countryTerritoryPlatePieces(country?.geometry);
+
+  if (!allPieces.length) {
+    throw new Error('Could not split the selected country into valid territory pieces');
+  }
+
+  // Keep POST payloads small enough for the public service, even for large countries.
+  const batchSize = 300;
+  const batches = [];
+  for (let index = 0; index < allPieces.length; index += batchSize) {
+    batches.push(allPieces.slice(index, index + batchSize));
+  }
+
+  diagnostic('info', 'COUNTRY', 'Country split into independently reconstructable territory pieces', {
+    country: countryName,
+    age,
+    pieces: allPieces.length,
+    batches: batches.length,
+    maximumEdgeDegrees: 1.15,
+  });
+
+  const reconstructedBatches = new Array(batches.length);
+  let nextBatch = 0;
+  let failed = false;
+  let firstFailure = null;
+
+  const worker = async () => {
+    while (!failed && !signal?.aborted) {
+      const batchIndex = nextBatch;
+      nextBatch += 1;
+      if (batchIndex >= batches.length) return;
+      try {
+        reconstructedBatches[batchIndex] = await reconstructCountryPieceBatch(
+          country, age, batches[batchIndex], batchIndex, batches.length, signal
+        );
+      } catch (error) {
+        failed = true;
+        firstFailure = error;
+        return;
+      }
+    }
+  };
+
+  await Promise.all(Array.from({ length: Math.min(3, batches.length) }, () => worker()));
+  if (signal?.aborted) throw new DOMException('Request aborted', 'AbortError');
+  if (firstFailure) throw firstFailure;
+
+  const features = reconstructedBatches.flat();
+  if (!features.length) throw new Error('No reconstructed country geometry returned');
+
+  diagnostic('info', 'COUNTRY', 'Tracking reconstruction complete', {
+    country: countryName,
+    age,
+    sourcePieces: allPieces.length,
+    reconstructedFeatures: features.length,
+  });
+  return features;
 }
 
 function ageLabel(age) {
