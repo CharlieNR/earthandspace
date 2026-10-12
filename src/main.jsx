@@ -1278,7 +1278,9 @@ function App() {
                     ) : (
                       <>
                         <div className="mass-planet-scene">
-                          <div className={'mass-planet-ball' + (item.name === 'Saturn' ? ' has-rings' : '')} style={{ width: item.diameter + 'px', height: item.diameter + 'px', '--planet-texture': 'url("' + item.texture + '")' }} role="img" aria-label={item.name + ' planet image'} />
+                          <div className={'mass-planet-ball' + (item.name === 'Saturn' ? ' has-rings' : '')} style={{ width: item.diameter + 'px', height: item.diameter + 'px', '--planet-texture': 'url("' + item.texture + '")' }} role="img" aria-label={item.name + ' planet image'}>
+                            <div className="mass-person-cutout" style={{ transform: 'translateX(-50%) scale(' + (item.diameter / 160) + ')' }} aria-hidden="true"><span className="person-head" /><span className="person-body" /><span className="person-leg left" /><span className="person-leg right" /><span className="person-arm left" /><span className="person-arm right" /></div>
+                          </div>
                       </div>
                       <div className="mass-planet-title">{item.name}</div>
                       <div className="mass-planet-fact">{item.fact}</div>
