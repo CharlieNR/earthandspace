@@ -18,6 +18,55 @@ const GPLATES_COUNTRY_URL = 'https://gws.gplates.org/reconstruct/reconstruct_fea
 const GPLATES_TEST_AGE = 100;
 
 const DAY_TEXTURE = 'https://unpkg.com/three-globe/example/img/earth-blue-marble.jpg';
+
+const USGS_EARTHQUAKE_FEEDS = {
+  hour: 'https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_hour.geojson',
+  day: 'https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson',
+  week: 'https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_week.geojson',
+  month: 'https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_month.geojson',
+};
+const USGS_EARTHQUAKE_MAP_URL = 'https://earthquake.usgs.gov/earthquakes/map/';
+const PHIVOLCS_EARTHQUAKE_BULLETINS_URL = 'https://earthquake.phivolcs.dost.gov.ph/';
+const QUAKE_REFRESH_INTERVAL_MS = 60000;
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
+function earthquakeMagnitudeColor(magnitude) {
+  if (magnitude >= 6) return '#ff526c';
+  if (magnitude >= 4.5) return '#ff9b54';
+  if (magnitude >= 2.5) return '#f4cf68';
+  return '#71d8c4';
+}
+
+function earthquakeMagnitudeRadius(magnitude) {
+  const value = Number.isFinite(Number(magnitude)) ? Number(magnitude) : 0;
+  return Math.max(0.12, Math.min(0.82, 0.14 + Math.max(0, value) * 0.075));
+}
+
+function isPhilippinesRegionEvent(event) {
+  const coordinates = event?.geometry?.coordinates;
+  if (!Array.isArray(coordinates) || coordinates.length < 2) return false;
+  const longitude = Number(coordinates[0]);
+  const latitude = Number(coordinates[1]);
+  // A regional viewing window, not a national boundary or hazard-zone polygon.
+  return longitude >= 116 && longitude <= 128 && latitude >= 3.5 && latitude <= 22.5;
+}
+
+function formatEarthquakeTime(timestamp) {
+  if (!Number.isFinite(Number(timestamp))) return 'Time unavailable';
+  return new Date(Number(timestamp)).toLocaleString(undefined, {
+    year: 'numeric', month: 'short', day: 'numeric',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+  });
+}
+
 const BUMP_TEXTURE = 'https://unpkg.com/three-globe/example/img/earth-topology.png';
 const STAR_TEXTURE = 'https://unpkg.com/three-globe/example/img/night-sky.png';
 
@@ -956,8 +1005,23 @@ function reconstructedCoastlinePaths(features) {
 function App() {
   const globeRef = useRef(null);
   const stageRef = useRef(null);
+  const quakeGlobeRef = useRef(null);
+  const quakeStageRef = useRef(null);
   const requestRef = useRef(0);
   const [systemSelected, setSystemSelected] = useState('landing');
+  const [quakeEvents, setQuakeEvents] = useState([]);
+  const [quakeRange, setQuakeRange] = useState('day');
+  const [quakeMinMagnitude, setQuakeMinMagnitude] = useState('0');
+  const [quakeRegion, setQuakeRegion] = useState('world');
+  const [quakeSort, setQuakeSort] = useState('newest');
+  const [quakeSearch, setQuakeSearch] = useState('');
+  const [quakeSelectedId, setQuakeSelectedId] = useState(null);
+  const [quakeLoading, setQuakeLoading] = useState(false);
+  const [quakeError, setQuakeError] = useState('');
+  const [quakeUpdatedAt, setQuakeUpdatedAt] = useState(null);
+  const [quakeRefreshNonce, setQuakeRefreshNonce] = useState(0);
+  const [quakeAutoRefresh, setQuakeAutoRefresh] = useState(true);
+
   const [earthMass, setEarthMass] = useState('60');
   const [massPlanetIndex, setMassPlanetIndex] = useState(2);
   const [age, setAge] = useState(0);
@@ -1068,6 +1132,34 @@ function App() {
 
   const period = useMemo(() => nearestPeriod(age), [age]);
   const keyframeAge = useMemo(() => keyframeAgeFor(age), [age]);
+
+  const quakeFilteredEvents = useMemo(() => {
+    const minimumMagnitude = Number(quakeMinMagnitude);
+    return quakeEvents.filter((event) => {
+      const magnitude = Number(event?.properties?.mag);
+      if (Number.isFinite(minimumMagnitude) && Number.isFinite(magnitude) && magnitude < minimumMagnitude) return false;
+      if (quakeRegion === 'philippines' && !isPhilippinesRegionEvent(event)) return false;
+      const text = quakeSearch.trim().toLowerCase();
+      if (text && !String(event?.properties?.place || '').toLowerCase().includes(text)) return false;
+      return true;
+    });
+  }, [quakeEvents, quakeMinMagnitude, quakeRegion, quakeSearch]);
+
+  const quakeSortedEvents = useMemo(() => {
+    const sorted = [...quakeFilteredEvents];
+    sorted.sort((a, b) => {
+      if (quakeSort === 'largest') {
+        const magnitudeDifference = Number(b?.properties?.mag ?? -Infinity) - Number(a?.properties?.mag ?? -Infinity);
+        if (magnitudeDifference) return magnitudeDifference;
+      }
+      return Number(b?.properties?.time || 0) - Number(a?.properties?.time || 0);
+    });
+    return sorted;
+  }, [quakeFilteredEvents, quakeSort]);
+
+  const quakeMapEvents = quakeSortedEvents;
+  const quakeListEvents = quakeSortedEvents.slice(0, 100);
+
   const visibleEvents = useMemo(() => EVENTS.filter((event) => Math.abs(event.ma - age) < 95), [age]);
   const historicalCoastlinePaths = useMemo(
     () => age >= 0.1 ? reconstructedCoastlinePaths(land) : [],
@@ -1100,6 +1192,73 @@ function App() {
     const plateResults = PLATES.filter((item) => (item.name + ' ' + item.code + ' ' + item.summary).toLowerCase().includes(query)).slice(0, 4).map((item) => ({ type: 'plate', ...item }));
     return [...periodResults, ...eventResults, ...plateResults].slice(0, 8);
   }, [search]);
+
+
+  useEffect(() => {
+    if (systemSelected !== 'phivolcs') return;
+    let cancelled = false;
+    let controller = null;
+    let refreshTimer = null;
+
+    const fetchEarthquakes = async (isInitial = false) => {
+      controller?.abort();
+      const requestController = new AbortController();
+      controller = requestController;
+      if (isInitial || quakeEvents.length === 0) setQuakeLoading(true);
+
+      try {
+        const response = await fetch(USGS_EARTHQUAKE_FEEDS[quakeRange] || USGS_EARTHQUAKE_FEEDS.day, {
+          cache: 'no-store',
+          signal: requestController.signal,
+          headers: { Accept: 'application/geo+json, application/json;q=0.9' },
+        });
+        if (!response.ok) throw new Error('USGS earthquake feed returned HTTP ' + response.status);
+        const collection = await response.json();
+        const received = Array.isArray(collection?.features) ? collection.features : [];
+        const validEvents = received.filter((event) => {
+          const coordinates = event?.geometry?.coordinates;
+          return Array.isArray(coordinates)
+            && coordinates.length >= 3
+            && Number.isFinite(Number(coordinates[0]))
+            && Number.isFinite(Number(coordinates[1]))
+            && Number.isFinite(Number(event?.properties?.time))
+            && Number.isFinite(Number(event?.properties?.mag));
+        });
+
+        if (cancelled || requestController.signal.aborted) return;
+        setQuakeEvents(validEvents);
+        setQuakeUpdatedAt(Date.now());
+        setQuakeError('');
+        diagnostic('info', 'QUAKES', 'Global earthquake feed refreshed', {
+          range: quakeRange,
+          received: received.length,
+          validEvents: validEvents.length,
+          feedGeneratedAt: collection?.metadata?.generated || null,
+          source: 'USGS GeoJSON summary feed',
+        });
+      } catch (error) {
+        if (cancelled || requestController.signal.aborted || error?.name === 'AbortError') return;
+        setQuakeError(error?.message || 'Unable to load the global earthquake feed.');
+        diagnostic('error', 'QUAKES', 'Global earthquake feed refresh failed', {
+          range: quakeRange,
+          message: error?.message || String(error),
+        });
+      } finally {
+        if (!cancelled && !requestController.signal.aborted) setQuakeLoading(false);
+      }
+    };
+
+    fetchEarthquakes(true);
+    if (quakeAutoRefresh) {
+      refreshTimer = window.setInterval(() => fetchEarthquakes(false), QUAKE_REFRESH_INTERVAL_MS);
+    }
+
+    return () => {
+      cancelled = true;
+      controller?.abort();
+      if (refreshTimer) window.clearInterval(refreshTimer);
+    };
+  }, [systemSelected, quakeRange, quakeAutoRefresh, quakeRefreshNonce]);
 
   useEffect(() => {
     const media = window.matchMedia?.('(prefers-reduced-motion: reduce)');
@@ -1791,6 +1950,268 @@ function App() {
         </div>
   ) : null;
 
+  if (systemSelected === 'phivolcs') {
+    const selectedQuake = quakeEvents.find((event) => event.id === quakeSelectedId) || null;
+    const selectedProperties = selectedQuake?.properties || null;
+    const selectedCoordinates = selectedQuake?.geometry?.coordinates || [];
+    const selectQuake = (event) => {
+      if (!event) return;
+      setQuakeSelectedId(event.id);
+      const coordinates = event.geometry?.coordinates || [];
+      const longitude = Number(coordinates[0]);
+      const latitude = Number(coordinates[1]);
+      if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
+        quakeGlobeRef.current?.pointOfView({ lat: latitude, lng: longitude, altitude: 1.35 }, reducedMotion ? 0 : 850);
+      }
+    };
+
+    return (
+      <main className="phivolcs-app">
+        <header className="phivolcs-header">
+          <div className="phivolcs-brand">
+            <button
+              className="brand-mark"
+              type="button"
+              onClick={() => {
+                diagnostic('info', 'UI', 'Returned to the system chooser from the Earth icon', { program: 'PHIVOLCS System' });
+                setTerminalOpen(false);
+                setSystemSelected('landing');
+              }}
+              onContextMenu={(event) => {
+                event.preventDefault();
+                diagnostic('info', 'UI', 'Diagnostics terminal opened from the Earth icon context menu', { program: 'PHIVOLCS System' });
+                setTerminalOpen(true);
+              }}
+              aria-expanded={terminalOpen}
+              aria-controls="diagnostics-terminal"
+              aria-label="Return to home; right-click to open diagnostics terminal"
+              title="Click: Home · Right-click: Diagnostics terminal"
+            >
+              <span /><span /><span />
+            </button>
+            <div>
+              <div className="phivolcs-brand-title">PHIVOLCS <span>SEISMIC MONITOR</span></div>
+              <div className="phivolcs-brand-sub">Global earthquake activity · public data</div>
+            </div>
+          </div>
+          <div className="phivolcs-header-actions">
+            <span className={quakeLoading ? 'quake-live-state is-loading' : 'quake-live-state'}>
+              <span className="quake-live-dot" />
+              {quakeLoading ? 'UPDATING' : quakeError ? 'FEED ISSUE' : 'LIVE FEED'}
+            </span>
+            <button className="quake-refresh-button" type="button" onClick={() => setQuakeRefreshNonce((value) => value + 1)} disabled={quakeLoading} title="Fetch the latest feed">↻ <span>Refresh</span></button>
+          </div>
+        </header>
+
+        {renderTerminal()}
+
+        <div className="quake-dashboard">
+          <section className="quake-map-panel">
+            <div className="quake-heading">
+              <div>
+                <p className="quake-eyebrow">GLOBAL SEISMICITY</p>
+                <h1>Earthquake activity</h1>
+                <p>Explore recorded earthquakes around the world. Select a marker or an event to inspect its magnitude, depth and time.</p>
+              </div>
+              <div className="quake-stats">
+                <strong>{quakeFilteredEvents.length.toLocaleString()}</strong>
+                <span>events in view</span>
+                <small>{quakeUpdatedAt ? 'Updated ' + new Date(quakeUpdatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : 'Waiting for feed'}</small>
+              </div>
+            </div>
+
+            <div className="quake-map-wrap" ref={quakeStageRef}>
+              <div className="quake-map-badges">
+                <span>{quakeRange === 'hour' ? 'PAST HOUR' : quakeRange === 'day' ? 'PAST 24 HOURS' : quakeRange === 'week' ? 'PAST 7 DAYS' : 'PAST 30 DAYS'}</span>
+                <span>{quakeRegion === 'philippines' ? 'PHILIPPINES FOCUS' : 'WORLDWIDE'}</span>
+              </div>
+              <Globe
+                ref={quakeGlobeRef}
+                width={quakeStageRef.current?.clientWidth || window.innerWidth}
+                height={Math.max(430, (quakeStageRef.current?.clientHeight || window.innerHeight) - 4)}
+                backgroundColor="rgba(0,0,0,0)"
+                globeImageUrl={DAY_TEXTURE}
+                bumpImageUrl={BUMP_TEXTURE}
+                backgroundImageUrl={STAR_TEXTURE}
+                showAtmosphere
+                atmosphereColor="#6eaefc"
+                atmosphereAltitude={0.18}
+                pointsData={quakeMapEvents}
+                pointLat={(event) => Number(event.geometry.coordinates[1])}
+                pointLng={(event) => Number(event.geometry.coordinates[0])}
+                pointColor={(event) => event.id === quakeSelectedId ? '#ffffff' : earthquakeMagnitudeColor(Number(event.properties.mag))}
+                pointRadius={(event) => earthquakeMagnitudeRadius(Number(event.properties.mag)) * (event.id === quakeSelectedId ? 1.35 : 1)}
+                pointAltitude={0.015}
+                pointResolution={12}
+                pointLabel={(event) => {
+                  const properties = event.properties || {};
+                  const coordinates = event.geometry?.coordinates || [];
+                  return '<div class="globe-tooltip quake-tooltip"><strong>M ' + escapeHtml(Number(properties.mag).toFixed(1)) + ' · ' + escapeHtml(properties.place || 'Location unavailable') + '</strong><br/><span>Depth ' + escapeHtml(Number(coordinates[2]).toFixed(1)) + ' km · ' + escapeHtml(formatEarthquakeTime(properties.time)) + '</span></div>';
+                }}
+                onPointClick={selectQuake}
+                enablePointerInteraction
+              />
+              <div className="quake-map-footer">
+                <span><i className="quake-legend-dot quake-mag-small" /> M 0–2.4</span>
+                <span><i className="quake-legend-dot quake-mag-mid" /> M 2.5–4.4</span>
+                <span><i className="quake-legend-dot quake-mag-high" /> M 4.5–5.9</span>
+                <span><i className="quake-legend-dot quake-mag-major" /> M 6.0+</span>
+              </div>
+              {quakeLoading && quakeEvents.length === 0 && (
+                <div className="quake-map-message"><span className="quake-spinner" /> Loading global earthquake feed…</div>
+              )}
+              {quakeError && (
+                <div className="quake-map-message quake-map-error">
+                  <strong>Earthquake feed unavailable</strong>
+                  <span>{quakeError}</span>
+                  <button type="button" onClick={() => setQuakeRefreshNonce((value) => value + 1)}>Retry feed</button>
+                </div>
+              )}
+            </div>
+
+            <div className="quake-magnitude-note">
+              <span className="quake-info-icon">i</span>
+              <p><strong>How to read the scale:</strong> magnitude measures an earthquake at its source, not how strongly every location shakes. Each whole magnitude step represents about 10× the measured wave amplitude and roughly 32× the released energy. Local shaking also depends on distance, depth and ground conditions.</p>
+              <a href="https://www.usgs.gov/programs/earthquake-hazards/earthquake-magnitude-energy-release-and-shaking-intensity" target="_blank" rel="noreferrer">Magnitude guide ↗</a>
+            </div>
+          </section>
+
+          <aside className="quake-sidebar">
+            <section className="quake-side-section quake-filter-panel">
+              <div className="quake-section-top">
+                <div>
+                  <p className="quake-eyebrow">MONITOR CONTROLS</p>
+                  <h2>Filter activity</h2>
+                </div>
+                <span className="quake-count-pill">{quakeFilteredEvents.length.toLocaleString()}</span>
+              </div>
+
+              <div className="quake-filter-grid">
+                <label>
+                  <span>Time window</span>
+                  <select value={quakeRange} onChange={(event) => setQuakeRange(event.target.value)}>
+                    <option value="hour">Past hour</option>
+                    <option value="day">Past 24 hours</option>
+                    <option value="week">Past 7 days</option>
+                    <option value="month">Past 30 days</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Minimum magnitude</span>
+                  <select value={quakeMinMagnitude} onChange={(event) => setQuakeMinMagnitude(event.target.value)}>
+                    <option value="0">All reported magnitudes</option>
+                    <option value="2.5">M 2.5 and above</option>
+                    <option value="4.5">M 4.5 and above</option>
+                    <option value="6">M 6.0 and above</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Region</span>
+                  <select value={quakeRegion} onChange={(event) => setQuakeRegion(event.target.value)}>
+                    <option value="world">Worldwide</option>
+                    <option value="philippines">Philippines focus</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Sort events</span>
+                  <select value={quakeSort} onChange={(event) => setQuakeSort(event.target.value)}>
+                    <option value="newest">Newest first</option>
+                    <option value="largest">Largest magnitude</option>
+                  </select>
+                </label>
+              </div>
+              <label className="quake-search-label">
+                <span>Search location</span>
+                <input value={quakeSearch} onChange={(event) => setQuakeSearch(event.target.value)} placeholder="e.g. Philippines, Japan, Alaska…" />
+              </label>
+              <label className="quake-auto-refresh">
+                <input type="checkbox" checked={quakeAutoRefresh} onChange={(event) => setQuakeAutoRefresh(event.target.checked)} />
+                <span><strong>Auto-refresh</strong><small>Check for new data every 60 seconds</small></span>
+              </label>
+            </section>
+
+            {selectedQuake && selectedProperties && (
+              <section className="quake-selected-card">
+                <div className="quake-selected-top">
+                  <span>SELECTED EARTHQUAKE</span>
+                  <button type="button" onClick={() => setQuakeSelectedId(null)} aria-label="Clear selected earthquake">×</button>
+                </div>
+                <div className="quake-selected-body">
+                  <div className="quake-selected-magnitude" style={{ '--quake-color': earthquakeMagnitudeColor(Number(selectedProperties.mag)) }}>
+                    <strong>{Number(selectedProperties.mag).toFixed(1)}</strong><small>MAGNITUDE</small>
+                  </div>
+                  <div className="quake-selected-location">
+                    <h3>{selectedProperties.place || 'Location unavailable'}</h3>
+                    <p>{formatEarthquakeTime(selectedProperties.time)}</p>
+                    <p>Depth <strong>{Number(selectedCoordinates[2]).toFixed(1)} km</strong> · {selectedProperties.magType || 'Magnitude type unavailable'}</p>
+                  </div>
+                </div>
+                <div className="quake-selected-metrics">
+                  <span><small>LATITUDE</small><strong>{Number(selectedCoordinates[1]).toFixed(3)}°</strong></span>
+                  <span><small>LONGITUDE</small><strong>{Number(selectedCoordinates[0]).toFixed(3)}°</strong></span>
+                  <span><small>STATUS</small><strong>{selectedProperties.status || 'Reported'}</strong></span>
+                </div>
+                <a className="quake-event-source-link" href={selectedProperties.url || USGS_EARTHQUAKE_MAP_URL} target="_blank" rel="noreferrer">Open official event details ↗</a>
+              </section>
+            )}
+
+            <section className="quake-side-section quake-event-panel">
+              <div className="quake-section-top quake-event-heading">
+                <div>
+                  <p className="quake-eyebrow">RECENT EVENTS</p>
+                  <h2>{quakeSort === 'largest' ? 'Largest earthquakes' : 'Latest earthquakes'}</h2>
+                </div>
+                {quakeLoading && quakeEvents.length > 0 && <span className="quake-mini-spinner" title="Updating feed" />}
+              </div>
+
+              {quakeError && quakeEvents.length > 0 && <p className="quake-stale-notice">Showing the last successful update. {quakeError}</p>}
+              {quakeFilteredEvents.length === 0 && !quakeLoading && !quakeError && (
+                <div className="quake-empty">No recorded events match these filters. Try a wider time window or a lower magnitude threshold.</div>
+              )}
+              {quakeFilteredEvents.length === 0 && quakeLoading && (
+                <div className="quake-empty">Loading events…</div>
+              )}
+              <div className="quake-event-list">
+                {quakeListEvents.map((event) => {
+                  const properties = event.properties || {};
+                  const coordinates = event.geometry?.coordinates || [];
+                  const isSelected = event.id === quakeSelectedId;
+                  const magnitude = Number(properties.mag);
+                  return (
+                    <button key={event.id} type="button" className={isSelected ? 'quake-event-row is-selected' : 'quake-event-row'} onClick={() => selectQuake(event)} aria-pressed={isSelected}>
+                      <span className="quake-event-mag" style={{ '--quake-color': earthquakeMagnitudeColor(magnitude), '--quake-radius': (Math.max(7, earthquakeMagnitudeRadius(magnitude) * 18)) + 'px' }}>
+                        <strong>{magnitude.toFixed(1)}</strong>
+                      </span>
+                      <span className="quake-event-copy">
+                        <strong>{properties.place || 'Location unavailable'}</strong>
+                        <small>{formatEarthquakeTime(properties.time)}</small>
+                        <small>Depth {Number(coordinates[2]).toFixed(1)} km</small>
+                      </span>
+                      <span className="quake-event-arrow" aria-hidden="true">↗</span>
+                    </button>
+                  );
+                })}
+              </div>
+              {quakeFilteredEvents.length > quakeListEvents.length && <p className="quake-list-limit">Showing the first {quakeListEvents.length} of {quakeFilteredEvents.length} matching events.</p>}
+            </section>
+
+            <section className="quake-source-panel">
+              <div className="quake-source-title"><span className="quake-source-status" /> DATA SOURCES</div>
+              <p><strong>Global feed:</strong> USGS earthquake GeoJSON. Updated by the provider about once per minute.</p>
+              <a href={USGS_EARTHQUAKE_MAP_URL} target="_blank" rel="noreferrer">USGS Latest Earthquakes ↗</a>
+              <a href={PHIVOLCS_EARTHQUAKE_BULLETINS_URL} target="_blank" rel="noreferrer">PHIVOLCS official Philippines bulletins ↗</a>
+              <small>This is a public-information viewer, not an earthquake early-warning system. Feed coverage and event magnitudes may be revised after initial publication.</small>
+            </section>
+          </aside>
+        </div>
+        <footer className="phivolcs-footer">
+          <span>PHIVOLCS SYSTEM <span className="footer-separator">/</span> GLOBAL SEISMIC MONITOR</span>
+          <span>Click the Earth to return home · Right-click it to open diagnostics</span>
+        </footer>
+      </main>
+    );
+  }
+
   if (systemSelected === 'mass-space') {
     const massSlides = [...SOLAR_SYSTEM_PLANETS, { name: 'Solar System', overview: true, fact: 'All eight planets in order from the Sun: Mercury, Venus, Earth, Mars, Jupiter, Saturn, Uranus and Neptune.' }];
     const selectedSlide = massSlides[massPlanetIndex];
@@ -1928,14 +2349,13 @@ function App() {
               </span>
               <span className="system-choice-arrow" aria-hidden="true">↗</span>
             </button>
-            <button className="system-choice system-choice-disabled" type="button" disabled aria-disabled="true">
+            <button className="system-choice system-choice-primary" type="button" onClick={() => setSystemSelected('phivolcs')}>
               <span className="system-choice-icon" aria-hidden="true">⌁</span>
               <span className="system-choice-copy">
                 <strong>PHIVOLCS System</strong>
-                <span>Earthquake and volcano information tools.</span>
-                <small>COMING SOON</small>
+                <span>Explore live global earthquake activity and magnitudes.</span>
               </span>
-              <span className="system-choice-lock" aria-hidden="true">—</span>
+              <span className="system-choice-arrow" aria-hidden="true">↗</span>
             </button>
           </div>
           <p className="system-landing-note">More Earth systems will be added here over time.</p>
