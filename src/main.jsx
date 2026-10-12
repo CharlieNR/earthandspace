@@ -581,6 +581,30 @@ function meshToPaths(mesh) {
     .map((points) => ({ kind: 'country', points }));
 }
 
+// Use reconstructed polygon boundaries as line paths rather than filling raw
+// coastline polygons. Some GPlates coastline rings span the ocean when treated
+// as globe polygons, which paints the sea as land.
+function reconstructedCoastlinePaths(features) {
+  const paths = [];
+  const addRing = (ring) => {
+    if (Array.isArray(ring) && ring.length > 1) {
+      paths.push({ kind: 'historical-coastline', points: ring });
+    }
+  };
+  const visit = (geometry) => {
+    if (!geometry) return;
+    if (geometry.type === 'Polygon') {
+      (geometry.coordinates || []).forEach(addRing);
+    } else if (geometry.type === 'MultiPolygon') {
+      (geometry.coordinates || []).forEach((polygon) => polygon.forEach(addRing));
+    } else if (geometry.type === 'GeometryCollection') {
+      (geometry.geometries || []).forEach(visit);
+    }
+  };
+  (features || []).forEach((feature) => visit(feature.geometry));
+  return paths;
+}
+
 function App() {
   const globeRef = useRef(null);
   const stageRef = useRef(null);
@@ -658,10 +682,15 @@ function App() {
   const period = useMemo(() => nearestPeriod(age), [age]);
   const keyframeAge = useMemo(() => keyframeAgeFor(age), [age]);
   const visibleEvents = useMemo(() => EVENTS.filter((event) => Math.abs(event.ma - age) < 95), [age]);
+  const historicalCoastlinePaths = useMemo(
+    () => age >= 0.1 ? reconstructedCoastlinePaths(land) : [],
+    [age, land]
+  );
   const globePaths = useMemo(() => [
     ...countryBoundaries.map((path) => ({ ...path, age })),
+    ...historicalCoastlinePaths,
     ...(plateMode ? PLATE_BOUNDARIES.map((path) => ({ kind: 'plate', ...path })) : []),
-  ], [age, countryBoundaries, plateMode]);
+  ], [age, countryBoundaries, historicalCoastlinePaths, plateMode]);
 
   const countryResults = useMemo(() => {
     const query = countrySearch.trim().toLowerCase();
@@ -739,19 +768,25 @@ function App() {
     const generation = cacheGenerationRef.current;
 
     const warm = async () => {
+      // Inventory the local cache before testing the remote service. A failed health
+      // check must never leave the UI stuck at 0/73 or prevent existing frames loading.
+      const storedKeys = await getStoredFrameKeys();
+      if (cancelled || generation !== cacheGenerationRef.current) return;
+      let cached = KEYFRAME_AGES.filter((frameAge) => storedKeys.has(frameKey(frameAge))).length;
+      setCacheProgress({ cached, total: KEYFRAME_AGES.length });
+      diagnostic('info', 'CACHE', 'Cache inventory checked', { cached, total: KEYFRAME_AGES.length, missing: KEYFRAME_AGES.length - cached });
+
       const health = await testGplatesConnectivity();
       if (!health.ok) {
+        diagnostic('warn', 'CACHE', 'GPlates health check failed; attempting actual keyframe requests anyway', {
+          message: health.message,
+          retryAfterMs: PRELOAD_FAILURE_PAUSE_MS,
+        });
         if (!cancelled && generation === cacheGenerationRef.current) {
           setStatus('warning');
-          setStatusText('GPlates connection unavailable · Present day remains available');
-          diagnostic('warn', 'CACHE', 'Background preload not started because GPlates health check failed', {
-            retryAfterMs: PRELOAD_FAILURE_PAUSE_MS,
-          });
+          setStatusText('GPlates check failed · trying keyframe requests');
         }
-        return;
-      }
-
-      if (!cancelled && generation === cacheGenerationRef.current) {
+      } else if (!cancelled && generation === cacheGenerationRef.current) {
         setStatus('ready');
         setStatusText('GPlates connected · building keyframe cache');
       }
@@ -762,11 +797,6 @@ function App() {
         startDelayMs: PRELOAD_START_DELAY_MS,
         strategy: 'two-worker throttled coastline requests',
       });
-      const storedKeys = await getStoredFrameKeys();
-      let cached = KEYFRAME_AGES.filter((frameAge) => storedKeys.has(frameKey(frameAge))).length;
-      setCacheProgress({ cached, total: KEYFRAME_AGES.length });
-      diagnostic('info', 'CACHE', 'Cache inventory checked', { cached, total: KEYFRAME_AGES.length, missing: KEYFRAME_AGES.length - cached });
-
       const missing = KEYFRAME_AGES.filter((frameAge) => !storedKeys.has(frameKey(frameAge)));
       let cursor = 0;
       let consecutiveFailures = 0;
@@ -1326,13 +1356,12 @@ function App() {
             polygonAltitude={(feature) => feature.__layer === 'tracked' ? 0.016 : 0.01}
             polygonCapColor={(feature) => {
               if (feature.__layer === 'tracked') return '#ff5caf';
-              return age < 0.1 ? 'rgba(0,0,0,0)' : '#6d8f59';
+              // Keep historical coastline polygons unfilled; the GPlates rings can
+              // include ocean-spanning exteriors and otherwise colour the sea green.
+              return 'rgba(0,0,0,0)';
             }}
-            polygonSideColor={(feature) => {
-              if (feature.__layer === 'tracked') return '#d43f8e';
-              return age < 0.1 ? 'rgba(0,0,0,0)' : '#4e7048';
-            }}
-            polygonStrokeColor={(feature) => feature.__layer === 'tracked' ? '#ffd1ea' : age < 0.1 ? 'rgba(255,255,255,0.15)' : 'rgba(232,246,215,0.75)'}
+            polygonSideColor={(feature) => feature.__layer === 'tracked' ? '#d43f8e' : 'rgba(0,0,0,0)'}
+            polygonStrokeColor={(feature) => feature.__layer === 'tracked' ? '#ffd1ea' : 'rgba(0,0,0,0)'}
             polygonLabel={(feature) => feature.__layer === 'tracked'
               ? '<div class="globe-tooltip"><strong>' + (feature.properties?.trackedCountry || 'Tracked country') + '</strong><br/><span>Tracked territory · ' + ageLabel(age) + '</span></div>'
               : '<div class="globe-tooltip"><strong>Reconstructed landmass</strong><br/><span>' + ageLabel(age) + '</span></div>'}
@@ -1341,14 +1370,16 @@ function App() {
             pathPoints={(path) => path.points}
             pathPointLat={(point) => point[1]}
             pathPointLng={(point) => point[0]}
-            pathColor={(path) => path.kind === 'country'
-              ? (path.age < 0.1 ? 'rgba(255,255,255,0.78)' : 'rgba(231,247,239,0.28)')
-              : path.type === 'Divergent' ? '#78ddb5' : path.type === 'Convergent' ? '#f0ad75' : '#9ac8ff'}
-            pathStroke={(path) => path.kind === 'country' ? (path.age < 0.1 ? 0.95 : 0.65) : 2.1}
+            pathColor={(path) => path.kind === 'historical-coastline'
+              ? '#8ebd72'
+              : path.kind === 'country'
+                ? (path.age < 0.1 ? 'rgba(255,255,255,0.78)' : 'rgba(231,247,239,0.28)')
+                : path.type === 'Divergent' ? '#78ddb5' : path.type === 'Convergent' ? '#f0ad75' : '#9ac8ff'}
+            pathStroke={(path) => path.kind === 'historical-coastline' ? 0.9 : path.kind === 'country' ? (path.age < 0.1 ? 0.95 : 0.65) : 2.1}
             pathAltitude={(path) => path.kind === 'country' ? 0.025 : 0.03}
             pathResolution={3}
-            pathDashLength={(path) => path.kind === 'country' ? 1 : (plateMode ? 0.62 : 0)}
-            pathDashGap={(path) => path.kind === 'country' ? 0 : (plateMode ? 0.28 : 0)}
+            pathDashLength={(path) => path.kind === 'country' ? 1 : path.kind === 'historical-coastline' ? 1 : (plateMode ? 0.62 : 0)}
+            pathDashGap={(path) => path.kind === 'country' || path.kind === 'historical-coastline' ? 0 : (plateMode ? 0.28 : 0)}
             pathDashAnimateTime={2600}
             pointsData={eventMode ? visibleEvents : []}
             pointLat={(point) => point.lat}
