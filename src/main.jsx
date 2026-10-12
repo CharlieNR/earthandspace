@@ -23,6 +23,7 @@ const STAR_TEXTURE = 'https://unpkg.com/three-globe/example/img/night-sky.png';
 
 const CACHE_DB_NAME = 'intheglobe-keyframe-cache-v3';
 const CACHE_STORE_NAME = 'keyframes';
+const COUNTRY_CACHE_STORE_NAME = 'country-keyframes';
 const CACHE_MANIFEST_KEY = 'intheglobe-keyframe-manifest-v3';
 const MAX_AGE = 1800;
 const PLAYBACK_STEP = 5;
@@ -94,8 +95,10 @@ function writeFrameManifestEntry(key) {
     const current = JSON.parse(window.localStorage.getItem(CACHE_MANIFEST_KEY) || '{}');
     current[key] = 1;
     window.localStorage.setItem(CACHE_MANIFEST_KEY, JSON.stringify(current));
+    return true;
   } catch {
-    // localStorage can be unavailable or full; IndexedDB remains the durable frame store.
+    // The localStorage manifest is only an index; the full geometry lives in IndexedDB.
+    return false;
   }
 }
 
@@ -109,10 +112,16 @@ function openFrameDb() {
   if (frameDbPromise) return frameDbPromise;
   diagnostic('info', 'CACHE', 'Opening IndexedDB cache', { db: CACHE_DB_NAME, store: CACHE_STORE_NAME });
   frameDbPromise = new Promise((resolve, reject) => {
-    const request = window.indexedDB.open(CACHE_DB_NAME, 1);
+    // Version 2 adds a separate store for completed country reconstructions.
+    // The keyframe store is preserved during this in-place upgrade.
+    const request = window.indexedDB.open(CACHE_DB_NAME, 2);
     request.onupgradeneeded = () => {
-      if (!request.result.objectStoreNames.contains(CACHE_STORE_NAME)) {
-        request.result.createObjectStore(CACHE_STORE_NAME, { keyPath: 'key' });
+      const database = request.result;
+      if (!database.objectStoreNames.contains(CACHE_STORE_NAME)) {
+        database.createObjectStore(CACHE_STORE_NAME, { keyPath: 'key' });
+      }
+      if (!database.objectStoreNames.contains(COUNTRY_CACHE_STORE_NAME)) {
+        database.createObjectStore(COUNTRY_CACHE_STORE_NAME, { keyPath: 'key' });
       }
     };
     request.onsuccess = () => { diagnostic('info', 'CACHE', 'IndexedDB ready'); resolve(request.result); };
@@ -139,8 +148,12 @@ async function getStoredFrameKeys() {
 async function getStoredFrame(age) {
   const key = frameKey(age);
   diagnostic('info', 'CACHE', 'Checking stored keyframe', { age, key });
-  const db = await openFrameDb().catch((error) => { diagnostic('error', 'CACHE', 'IndexedDB read setup failed', { key, error: error?.message || String(error) }); return null; });
+  const db = await openFrameDb().catch((error) => {
+    diagnostic('error', 'CACHE', 'IndexedDB read setup failed', { key, error: error?.message || String(error) });
+    return null;
+  });
   if (!db) return null;
+
   return new Promise((resolve) => {
     const transaction = db.transaction(CACHE_STORE_NAME, 'readonly');
     const request = transaction.objectStore(CACHE_STORE_NAME).get(key);
@@ -151,22 +164,41 @@ async function getStoredFrame(age) {
         resolve(null);
         return;
       }
-      diagnostic('info', 'CACHE', 'Keyframe record found', { key, encoding: record.encoding, bytes: typeof record.data === 'string' ? record.data.length : record.data?.byteLength || 0 });
+      diagnostic('info', 'CACHE', 'Keyframe record found', {
+        key,
+        encoding: record.encoding,
+        bytes: typeof record.data === 'string' ? record.data.length : record.data?.byteLength || 0,
+      });
       try {
-        if (record.encoding === 'gzip' && typeof DecompressionStream === 'function') {
+        let json;
+        if (record.encoding === 'gzip') {
+          if (typeof DecompressionStream !== 'function') {
+            diagnostic('warn', 'CACHE', 'Cached frame is gzip-compressed but this browser cannot decompress it', { key });
+            resolve(null);
+            return;
+          }
           const stream = new Blob([record.data]).stream().pipeThrough(new DecompressionStream('gzip'));
-          const json = await new Response(stream).text();
-          resolve(JSON.parse(json));
+          json = await new Response(stream).text();
+        } else if (typeof record.data === 'string') {
+          json = record.data;
+        } else {
+          throw new Error('Stored frame has an unsupported data encoding');
+        }
+
+        const features = JSON.parse(json);
+        if (!Array.isArray(features) || features.length === 0 || features.some((feature) => !feature?.geometry)) {
+          diagnostic('warn', 'CACHE', 'Stored keyframe failed validation and will be refetched', { key, featureCount: features?.length || 0 });
+          resolve(null);
           return;
         }
-        resolve(typeof record.data === 'string' ? JSON.parse(record.data) : null);
+        resolve(features);
       } catch (error) {
-        console.warn('Could not decode cached reconstruction frame ' + key, error);
+        diagnostic('warn', 'CACHE', 'Could not decode cached reconstruction frame', { key, error: error?.message || String(error) });
         resolve(null);
       }
     };
     request.onerror = () => {
-      diagnostic('warn', 'CACHE', 'IndexedDB key lookup failed', { key });
+      diagnostic('warn', 'CACHE', 'IndexedDB key lookup failed', { key, error: request.error?.message });
       resolve(null);
     };
   });
@@ -174,7 +206,11 @@ async function getStoredFrame(age) {
 
 async function putStoredFrame(age, features) {
   const key = frameKey(age);
-  diagnostic('info', 'CACHE', 'Persisting keyframe', { age, key, features: features.length });
+  if (!Array.isArray(features) || features.length === 0 || features.some((feature) => !feature?.geometry)) {
+    diagnostic('error', 'CACHE', 'Refusing to persist an empty or invalid keyframe', { age, key, featureCount: features?.length || 0 });
+    return false;
+  }
+
   const compactFeatures = features.map((feature) => ({
     type: 'Feature',
     properties: {},
@@ -189,51 +225,182 @@ async function putStoredFrame(age, features) {
       const stream = new Blob([json]).stream().pipeThrough(new CompressionStream('gzip'));
       data = await new Response(stream).arrayBuffer();
       encoding = 'gzip';
-    } catch {
-      encoding = 'json';
-      data = json;
+    } catch (error) {
+      diagnostic('warn', 'CACHE', 'Frame compression failed; saving uncompressed JSON instead', { key, message: error?.message });
+    }
+  }
+
+  const db = await openFrameDb().catch((error) => {
+    diagnostic('error', 'CACHE', 'IndexedDB open failed before keyframe write', { key, error: error?.message || String(error) });
+    return null;
+  });
+  if (!db) {
+    diagnostic('error', 'CACHE', 'Keyframe is available only in memory because persistent browser storage is unavailable', { key });
+    return false;
+  }
+
+  try {
+    await new Promise((resolve, reject) => {
+      const transaction = db.transaction(CACHE_STORE_NAME, 'readwrite');
+      transaction.objectStore(CACHE_STORE_NAME).put({
+        key,
+        age,
+        model: modelForAge(age),
+        encoding,
+        data,
+        savedAt: Date.now(),
+        featureCount: compactFeatures.length,
+      });
+      transaction.oncomplete = resolve;
+      transaction.onerror = () => reject(transaction.error || new Error('IndexedDB write failed'));
+      transaction.onabort = () => reject(transaction.error || new Error('IndexedDB write aborted'));
+    });
+
+    const manifestSaved = writeFrameManifestEntry(key);
+    diagnostic('info', 'CACHE', 'Keyframe persisted to browser IndexedDB', {
+      key,
+      age,
+      model: modelForAge(age),
+      features: compactFeatures.length,
+      compressed: encoding === 'gzip',
+      encodedBytes: typeof data === 'string' ? data.length : data.byteLength,
+      localStorageManifestUpdated: manifestSaved,
+    });
+    return true;
+  } catch (error) {
+    diagnostic('error', 'CACHE', 'Keyframe write failed; fetched geometry remains in memory only', {
+      key,
+      name: error?.name,
+      message: error?.message,
+    });
+    return false;
+  }
+}
+
+async function getStoredCountryFrame(key) {
+  const db = await openFrameDb().catch((error) => {
+    diagnostic('error', 'COUNTRY', 'Could not open persistent country cache', { key, message: error?.message || String(error) });
+    return null;
+  });
+  if (!db) return null;
+
+  return new Promise((resolve) => {
+    const transaction = db.transaction(COUNTRY_CACHE_STORE_NAME, 'readonly');
+    const request = transaction.objectStore(COUNTRY_CACHE_STORE_NAME).get(key);
+    request.onsuccess = async () => {
+      const record = request.result;
+      if (!record) {
+        diagnostic('info', 'COUNTRY', 'Persistent country cache miss', { key });
+        resolve(null);
+        return;
+      }
+      try {
+        let json;
+        if (record.encoding === 'gzip') {
+          if (typeof DecompressionStream !== 'function') {
+            diagnostic('warn', 'COUNTRY', 'Cached country geometry cannot be decompressed in this browser', { key });
+            resolve(null);
+            return;
+          }
+          const stream = new Blob([record.data]).stream().pipeThrough(new DecompressionStream('gzip'));
+          json = await new Response(stream).text();
+        } else if (typeof record.data === 'string') {
+          json = record.data;
+        } else {
+          throw new Error('Stored country geometry has an unsupported encoding');
+        }
+        const savedFeatures = JSON.parse(json);
+        if (!Array.isArray(savedFeatures) || savedFeatures.length === 0 || savedFeatures.some((feature) => !feature?.geometry)) {
+          diagnostic('warn', 'COUNTRY', 'Stored country geometry failed validation and will be reconstructed again', { key, featureCount: savedFeatures?.length || 0 });
+          resolve(null);
+          return;
+        }
+        resolve(savedFeatures.map((feature) => ({ ...feature, __layer: 'tracked' })));
+      } catch (error) {
+        diagnostic('warn', 'COUNTRY', 'Could not decode persistent country geometry', { key, message: error?.message || String(error) });
+        resolve(null);
+      }
+    };
+    request.onerror = () => {
+      diagnostic('warn', 'COUNTRY', 'Persistent country cache lookup failed', { key, message: request.error?.message });
+      resolve(null);
+    };
+  });
+}
+
+async function putStoredCountryFrame(key, features, countryName) {
+  if (!Array.isArray(features) || features.length === 0 || features.some((feature) => !feature?.geometry)) {
+    diagnostic('warn', 'COUNTRY', 'Refusing to persist incomplete country reconstruction', { key, featureCount: features?.length || 0 });
+    return false;
+  }
+
+  const compactFeatures = features.map((feature) => ({
+    type: 'Feature',
+    properties: { trackedCountry: countryName },
+    geometry: feature.geometry,
+  }));
+  const json = JSON.stringify(compactFeatures);
+  let encoding = 'json';
+  let data = json;
+  if (typeof CompressionStream === 'function' && typeof DecompressionStream === 'function') {
+    try {
+      const stream = new Blob([json]).stream().pipeThrough(new CompressionStream('gzip'));
+      data = await new Response(stream).arrayBuffer();
+      encoding = 'gzip';
+    } catch (error) {
+      diagnostic('warn', 'COUNTRY', 'Country compression failed; saving uncompressed JSON', { key, message: error?.message });
     }
   }
 
   const db = await openFrameDb().catch(() => null);
-  if (db) {
-    try {
-      await new Promise((resolve, reject) => {
-        const transaction = db.transaction(CACHE_STORE_NAME, 'readwrite');
-        transaction.objectStore(CACHE_STORE_NAME).put({ key, age, model: modelForAge(age), encoding, data, savedAt: Date.now() });
-        transaction.oncomplete = resolve;
-        transaction.onerror = () => reject(transaction.error || new Error('IndexedDB write failed'));
-        transaction.onabort = () => reject(transaction.error || new Error('IndexedDB write aborted'));
+  if (!db) return false;
+  try {
+    await new Promise((resolve, reject) => {
+      const transaction = db.transaction(COUNTRY_CACHE_STORE_NAME, 'readwrite');
+      transaction.objectStore(COUNTRY_CACHE_STORE_NAME).put({
+        key,
+        countryName,
+        encoding,
+        data,
+        featureCount: compactFeatures.length,
+        savedAt: Date.now(),
       });
-      writeFrameManifestEntry(key);
-      diagnostic('info', 'CACHE', 'Keyframe persisted', { key, compressed: encoding === 'gzip', encoding });
-    } catch (error) {
-      diagnostic('error', 'CACHE', 'Keyframe write failed', { key, name: error?.name, message: error?.message });
-    }
-  } else {
-    diagnostic('warn', 'CACHE', 'Keyframe could not be persisted because IndexedDB is unavailable', { key });
+      transaction.oncomplete = resolve;
+      transaction.onerror = () => reject(transaction.error || new Error('IndexedDB country-cache write failed'));
+      transaction.onabort = () => reject(transaction.error || new Error('IndexedDB country-cache write aborted'));
+    });
+    diagnostic('info', 'COUNTRY', 'Completed country reconstruction saved to browser IndexedDB', {
+      key,
+      country: countryName,
+      features: compactFeatures.length,
+      compressed: encoding === 'gzip',
+      encodedBytes: typeof data === 'string' ? data.length : data.byteLength,
+    });
+    return true;
+  } catch (error) {
+    diagnostic('error', 'COUNTRY', 'Could not persist completed country reconstruction', { key, message: error?.message || String(error) });
+    return false;
   }
-  return compactFeatures;
 }
 
-
 async function clearStoredFrames() {
-  diagnostic('warn', 'CACHE', 'Clearing all stored keyframes');
+  diagnostic('warn', 'CACHE', 'Clearing all saved keyframes and country reconstructions');
   try {
     const db = await openFrameDb().catch(() => null);
     if (db) {
       await new Promise((resolve) => {
-        const transaction = db.transaction(CACHE_STORE_NAME, 'readwrite');
-        transaction.objectStore(CACHE_STORE_NAME).clear();
+        const stores = [CACHE_STORE_NAME, COUNTRY_CACHE_STORE_NAME].filter((name) => db.objectStoreNames.contains(name));
+        const transaction = db.transaction(stores, 'readwrite');
+        stores.forEach((name) => transaction.objectStore(name).clear());
         transaction.oncomplete = resolve;
         transaction.onerror = resolve;
+        transaction.onabort = resolve;
       });
     }
   } finally {
     try { window.localStorage.removeItem(CACHE_MANIFEST_KEY); } catch {}
   }
 }
-
 
 function sleep(ms) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -586,14 +753,13 @@ function countryTerritoryPlatePieces(geometry, maximumEdgeDegrees = 1.15) {
   return pieces;
 }
 
-async function reconstructCountryPieceBatch(country, age, pieces, batchIndex, batchCount, signal) {
+async function reconstructCountryPieceBatch(country, age, pieces, batchIndex, batchCount, startIndex, signal) {
   const countryName = country?.properties?.name || countryKey(country);
   let lastError;
 
   for (let attempt = 1; attempt <= FRAME_REQUEST_RETRIES; attempt += 1) {
     if (signal?.aborted) throw new DOMException('Request aborted', 'AbortError');
     try {
-      const startIndex = batchIndex * pieces.length;
       const featureCollection = {
         type: 'FeatureCollection',
         features: pieces.map((piece, index) => ({
@@ -662,7 +828,7 @@ async function reconstructCountryPieceBatch(country, age, pieces, batchIndex, ba
   throw lastError || new Error('Country territory-piece reconstruction failed');
 }
 
-async function fetchCountryReconstructionWithRetry(country, age, signal) {
+async function fetchCountryReconstructionWithRetry(country, age, signal, onBatch = null) {
   const countryName = country?.properties?.name || countryKey(country);
   const allPieces = countryTerritoryPlatePieces(country?.geometry);
 
@@ -697,8 +863,11 @@ async function fetchCountryReconstructionWithRetry(country, age, signal) {
       if (batchIndex >= batches.length) return;
       try {
         reconstructedBatches[batchIndex] = await reconstructCountryPieceBatch(
-          country, age, batches[batchIndex], batchIndex, batches.length, signal
+          country, age, batches[batchIndex], batchIndex, batches.length, batchIndex * batchSize, signal
         );
+        if (typeof onBatch === 'function') {
+          onBatch(reconstructedBatches[batchIndex], batchIndex, batches.length);
+        }
       } catch (error) {
         failed = true;
         firstFailure = error;
@@ -800,6 +969,8 @@ function App() {
   const [countrySearch, setCountrySearch] = useState('');
   const [trackedCountry, setTrackedCountry] = useState(null);
   const [trackedCountryLand, setTrackedCountryLand] = useState([]);
+  const [trackedCountryStatus, setTrackedCountryStatus] = useState('idle');
+  const [trackedCountryProgress, setTrackedCountryProgress] = useState({ completed: 0, total: 0 });
   const [status, setStatus] = useState('loading');
   const [statusText, setStatusText] = useState('Preparing Earth…');
   const [selected, setSelected] = useState({
@@ -842,6 +1013,41 @@ function App() {
     diagnostic('info', 'SYSTEM', 'Diagnostic terminal connected');
     return () => setDiagnosticSink(null);
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const inspectBrowserStorage = async () => {
+      try {
+        const storage = navigator.storage;
+        if (!storage) {
+          diagnostic('warn', 'CACHE', 'StorageManager API unavailable; browser persistence cannot be requested');
+          return;
+        }
+
+        let persisted = typeof storage.persisted === 'function' ? await storage.persisted() : null;
+        if (persisted === false && typeof storage.persist === 'function') {
+          const granted = await storage.persist();
+          if (cancelled) return;
+          persisted = granted;
+        }
+
+        const estimate = typeof storage.estimate === 'function' ? await storage.estimate() : null;
+        if (cancelled) return;
+        diagnostic('info', 'CACHE', 'Browser-local storage capability checked', {
+          persistentStorageGranted: persisted,
+          usageMiB: Number.isFinite(estimate?.usage) ? Number((estimate.usage / 1048576).toFixed(2)) : null,
+          quotaMiB: Number.isFinite(estimate?.quota) ? Number((estimate.quota / 1048576).toFixed(2)) : null,
+          framePayloadStore: 'IndexedDB (compressed)',
+          localStorageRole: 'small frame-key manifest only; not the large geometry payloads',
+        });
+      } catch (error) {
+        diagnostic('warn', 'CACHE', 'Could not check/request durable browser storage', { message: error?.message || String(error) });
+      }
+    };
+    inspectBrowserStorage();
+    return () => { cancelled = true; };
+  }, []);
+
 
   useEffect(() => {
     if (!terminalOpen) return;
@@ -951,11 +1157,28 @@ function App() {
     const warm = async () => {
       // Inventory the local cache before testing the remote service. A failed health
       // check must never leave the UI stuck at 0/73 or prevent existing frames loading.
+      const manifestKeys = readFrameManifest();
       const storedKeys = await getStoredFrameKeys();
       if (cancelled || generation !== cacheGenerationRef.current) return;
+      const manifestOnlyKeys = Array.from(manifestKeys).filter((key) => !storedKeys.has(key));
+      const indexOnlyKeys = Array.from(storedKeys).filter((key) => !manifestKeys.has(key));
+      indexOnlyKeys.forEach((key) => writeFrameManifestEntry(key));
+      if (manifestOnlyKeys.length) {
+        diagnostic('warn', 'CACHE', 'LocalStorage manifest contained keys without saved IndexedDB frames; those frames will be rebuilt', {
+          missingRecords: manifestOnlyKeys.length,
+          examples: manifestOnlyKeys.slice(0, 8),
+        });
+      }
       let cached = KEYFRAME_AGES.filter((frameAge) => storedKeys.has(frameKey(frameAge))).length;
       setCacheProgress({ cached, total: KEYFRAME_AGES.length });
-      diagnostic('info', 'CACHE', 'Cache inventory checked', { cached, total: KEYFRAME_AGES.length, missing: KEYFRAME_AGES.length - cached });
+      diagnostic('info', 'CACHE', 'Local cache inventory checked', {
+        indexedDbFrames: storedKeys.size,
+        localStorageManifestKeys: manifestKeys.size,
+        manifestRepaired: indexOnlyKeys.length,
+        cachedKeyframes: cached,
+        totalKeyframes: KEYFRAME_AGES.length,
+        missing: KEYFRAME_AGES.length - cached,
+      });
 
       const health = await testGplatesConnectivity();
       if (!health.ok) {
@@ -1013,19 +1236,37 @@ function App() {
 
           try {
             let features = frameCacheRef.current.get(key);
-            if (!features) features = await getStoredFrame(frameAge);
+            let loadedFromPersistentStore = false;
+            if (!features) {
+              features = await getStoredFrame(frameAge);
+              loadedFromPersistentStore = Boolean(features);
+            }
 
             if (!features) {
               features = await fetchReconstructionWithRetry(frameAge, preloadController.signal);
               if (cancelled || generation !== cacheGenerationRef.current) return;
-              await putStoredFrame(frameAge, features);
+            }
+
+            if (!loadedFromPersistentStore) {
+              const persisted = await putStoredFrame(frameAge, features);
+              if (!persisted) {
+                diagnostic('warn', 'CACHE', 'Keyframe loaded for this session but not confirmed as saved; it will be retried on the next cache pass', {
+                  age: frameAge,
+                  key,
+                  features: features.length,
+                });
+              }
             }
 
             if (cancelled || generation !== cacheGenerationRef.current) return;
             frameCacheRef.current.set(key, features);
             consecutiveFailures = 0;
             cached += 1;
-            diagnostic('info', 'CACHE', 'Background keyframe ready', { age: frameAge, progress: cached + '/' + KEYFRAME_AGES.length });
+            diagnostic('info', 'CACHE', 'Background keyframe ready', {
+              age: frameAge,
+              source: loadedFromPersistentStore ? 'IndexedDB' : 'network/memory',
+              progress: Math.min(cached, KEYFRAME_AGES.length) + '/' + KEYFRAME_AGES.length,
+            });
             setCacheProgress({ cached: Math.min(cached, KEYFRAME_AGES.length), total: KEYFRAME_AGES.length });
           } catch (error) {
             if (!cancelled && generation === cacheGenerationRef.current) {
@@ -1140,17 +1381,43 @@ function App() {
 
     if (!trackedCountry) {
       setTrackedCountryLand([]);
+      setTrackedCountryStatus('idle');
+      setTrackedCountryProgress({ completed: 0, total: 0 });
       return () => controller.abort();
     }
 
     const targetAge = keyframeAge;
     const name = trackedCountry.properties?.name || countryKey(trackedCountry);
-    diagnostic('info', 'COUNTRY', 'Tracking country selected', {
+    const cacheKey = countryCacheKey(trackedCountry, targetAge);
+    const partialBatches = new Map();
+
+    // Clear the old frame immediately. Never leave a present-day USA (or a prior-age
+    // reconstruction) painted at the wrong coordinates while the new age loads.
+    setTrackedCountryLand([]);
+    setTrackedCountryStatus('loading');
+    setTrackedCountryProgress({ completed: 0, total: 0 });
+    diagnostic('info', 'COUNTRY', 'Tracking country selected for this keyframe', {
       country: name,
       id: countryKey(trackedCountry),
-      age,
-      keyframe: targetAge,
+      displayedAge: age,
+      reconstructionKeyframe: targetAge,
     });
+
+    const publishBatch = (batchFeatures, batchIndex, totalBatches) => {
+      if (controller.signal.aborted || requestId !== trackedCountryRequestRef.current) return;
+      partialBatches.set(batchIndex, batchFeatures);
+      const visibleFeatures = Array.from(partialBatches.entries())
+        .sort((a, b) => a[0] - b[0])
+        .flatMap((entry) => entry[1]);
+      setTrackedCountryLand(visibleFeatures);
+      setTrackedCountryProgress({ completed: partialBatches.size, total: totalBatches });
+      diagnostic('info', 'COUNTRY', 'Ancestral territory batch displayed', {
+        country: name,
+        age: targetAge,
+        batch: (batchIndex + 1) + '/' + totalBatches,
+        highlightedPieces: visibleFeatures.length,
+      });
+    };
 
     const load = async () => {
       try {
@@ -1160,32 +1427,75 @@ function App() {
             properties: { ...(trackedCountry.properties || {}), trackedCountry: name },
             __layer: 'tracked',
           }]);
+          setTrackedCountryStatus('ready');
+          setTrackedCountryProgress({ completed: 1, total: 1 });
           diagnostic('info', 'COUNTRY', 'Using exact present-day country geometry', { country: name });
           return;
         }
 
-        const cacheKey = countryCacheKey(trackedCountry, targetAge);
         let features = trackedCountryCacheRef.current.get(cacheKey);
-
+        let source = 'memory';
         if (!features) {
-          features = await fetchCountryReconstructionWithRetry(trackedCountry, targetAge, controller.signal);
-          if (controller.signal.aborted || requestId !== trackedCountryRequestRef.current) return;
-          trackedCountryCacheRef.current.set(cacheKey, features);
+          features = await getStoredCountryFrame(cacheKey);
+          source = 'IndexedDB';
         }
 
-        if (requestId !== trackedCountryRequestRef.current) return;
+        if (controller.signal.aborted || requestId !== trackedCountryRequestRef.current) return;
+
+        if (features?.length) {
+          trackedCountryCacheRef.current.set(cacheKey, features);
+          setTrackedCountryLand(features);
+          setTrackedCountryStatus('ready');
+          setTrackedCountryProgress({ completed: 1, total: 1 });
+          diagnostic('info', 'COUNTRY', 'Tracked ancestral territory restored from local cache', {
+            country: name,
+            age: targetAge,
+            source,
+            features: features.length,
+          });
+          return;
+        }
+
+        features = await fetchCountryReconstructionWithRetry(
+          trackedCountry,
+          targetAge,
+          controller.signal,
+          publishBatch
+        );
+
+        if (controller.signal.aborted || requestId !== trackedCountryRequestRef.current) return;
         trackedCountryCacheRef.current.set(cacheKey, features);
         setTrackedCountryLand(features);
+        setTrackedCountryProgress((previous) => ({
+          completed: previous.total || 1,
+          total: previous.total || 1,
+        }));
+        setTrackedCountryStatus('ready');
+
+        const persisted = await putStoredCountryFrame(cacheKey, features, name);
+        if (!persisted) {
+          diagnostic('warn', 'COUNTRY', 'Reconstruction is visible but could not be saved to the browser-local country cache', {
+            country: name,
+            age: targetAge,
+            features: features.length,
+          });
+        }
         diagnostic('info', 'COUNTRY', 'Tracked country geometry displayed', {
           country: name,
           age: targetAge,
           features: features.length,
+          persisted,
         });
       } catch (error) {
         if (requestId !== trackedCountryRequestRef.current || error?.name === 'AbortError') return;
-        diagnostic('warn', 'COUNTRY', 'Tracked country reconstruction unavailable; keeping last geometry', {
+        const partialCount = Array.from(partialBatches.values()).reduce((total, batch) => total + batch.length, 0);
+        setTrackedCountryStatus(partialCount > 0 ? 'partial' : 'error');
+        diagnostic('error', 'COUNTRY', partialCount > 0
+          ? 'Some ancestral territory pieces loaded, but one or more reconstruction batches failed'
+          : 'Country reconstruction failed; no stale geometry will be shown', {
           country: name,
           age: targetAge,
+          partialFeatures: partialCount,
           message: error?.message,
         });
       }
@@ -1318,6 +1628,8 @@ function App() {
         properties: { ...(trackedCountry.properties || {}), trackedCountry: trackedCountry.properties?.name || countryKey(trackedCountry) },
         __layer: 'tracked',
       }] : []);
+      setTrackedCountryStatus(trackedCountry ? 'ready' : 'idle');
+      setTrackedCountryProgress(trackedCountry ? { completed: 1, total: 1 } : { completed: 0, total: 0 });
       setAge(0);
     }
   };
@@ -1803,7 +2115,19 @@ function App() {
                 <div>
                   <small>TRACKING</small>
                   <strong>{trackedCountry.properties?.name || countryKey(trackedCountry)}</strong>
-                  <span>{age < 0.1 ? 'Present-day territory highlighted' : 'Pink = reconstructed territory'}</span>
+                  <span>{
+                    age < 0.1
+                      ? 'Present-day territory highlighted'
+                      : trackedCountryStatus === 'loading'
+                        ? (trackedCountryProgress.total > 0
+                          ? 'Reconstructing ancestral pieces · ' + trackedCountryProgress.completed + '/' + trackedCountryProgress.total + ' batches'
+                          : 'Reconstructing ancestral pieces…')
+                        : trackedCountryStatus === 'ready'
+                          ? 'Pink = reconstructed territory at this keyframe'
+                          : trackedCountryStatus === 'partial'
+                            ? 'Partial highlight · ' + trackedCountryProgress.completed + '/' + trackedCountryProgress.total + ' batches loaded'
+                            : 'Reconstruction unavailable; check diagnostics'
+                  }</span>
                 </div>
               </div>
             )}
