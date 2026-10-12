@@ -1051,3 +1051,155 @@ html[data-reduced-motion='true'] *, html[data-reduced-motion='true'] *::before, 
 @media (prefers-reduced-motion: reduce) {
   .quake-spinner, .quake-mini-spinner, .quake-live-state.is-loading .quake-live-dot { animation: none; }
 }
+
+
+/* Global seismic monitor: flat, draggable equirectangular world map. */
+.phivolcs-brand-title { font-size: 12px; letter-spacing: .065em; }
+.phivolcs-brand-title span { font-size: 8px; letter-spacing: .13em; }
+.quake-layer-tabs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px;
+  border: 1px solid rgba(135,169,218,.16);
+  border-radius: 12px;
+  width: fit-content;
+  max-width: 100%;
+  background: rgba(7,16,31,.76);
+}
+.quake-layer-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 10px 13px;
+  background: transparent;
+  color: #8fa2c0;
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
+  transition: background .18s ease, color .18s ease, border-color .18s ease;
+}
+.quake-layer-tabs button:hover { color: #e5efff; background: rgba(122,160,215,.08); }
+.quake-layer-tabs button.is-active {
+  color: #f0f5ff;
+  background: linear-gradient(135deg, rgba(37,75,112,.84), rgba(22,43,74,.88));
+  border-color: rgba(129,190,220,.35);
+  box-shadow: 0 3px 15px rgba(0,0,0,.15);
+}
+.quake-layer-tabs button small {
+  padding: 3px 6px;
+  border-radius: 5px;
+  color: #9fcee3;
+  background: rgba(93,166,193,.12);
+  font-size: 8px;
+  font-variant-numeric: tabular-nums;
+}
+.quake-tab-earthquake-icon { color: #f4cf68; font-size: 12px; }
+.quake-tab-volcano-icon { color: #ff895f; font-size: 12px; }
+.quake-map-wrap {
+  background: #081528;
+}
+.quake-world-map {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  outline: none;
+  touch-action: none;
+  user-select: none;
+  cursor: grab;
+}
+.quake-world-map:active { cursor: grabbing; }
+.quake-world-map:focus-visible { outline: 2px solid #91d7eb; outline-offset: -3px; }
+.quake-map-graticule path {
+  fill: none;
+  stroke: rgba(117,153,196,.17);
+  stroke-width: .7;
+  vector-effect: non-scaling-stroke;
+}
+.quake-country-shape {
+  fill: #1b3046;
+  stroke: rgba(104,139,172,.68);
+  stroke-width: .55;
+  vector-effect: non-scaling-stroke;
+}
+.quake-map-country-layer path { pointer-events: none; }
+.quake-map-marker { cursor: pointer; vector-effect: non-scaling-stroke; }
+.quake-map-marker:hover { stroke: #ffffff !important; stroke-width: 2.2 !important; filter: drop-shadow(0 0 3px rgba(255,255,255,.5)); }
+.quake-map-marker:focus-visible { stroke: #ffffff !important; stroke-width: 2.6 !important; outline: none; }
+.quake-map-marker.is-selected { filter: drop-shadow(0 0 5px rgba(255,255,255,.65)); }
+.quake-map-controls {
+  position: absolute;
+  z-index: 3;
+  top: 53px;
+  right: 13px;
+  display: grid;
+  gap: 5px;
+}
+.quake-map-controls button {
+  width: 33px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(165,195,232,.24);
+  border-radius: 8px;
+  background: rgba(5,13,27,.86);
+  color: #d9e7ff;
+  box-shadow: 0 3px 10px rgba(0,0,0,.18);
+  cursor: pointer;
+  font-size: 17px;
+  line-height: 1;
+  backdrop-filter: blur(8px);
+}
+.quake-map-controls button:hover { background: rgba(31,54,83,.96); border-color: rgba(165,195,232,.55); }
+.quake-map-controls button:focus-visible, .quake-layer-tabs button:focus-visible {
+  outline: 2px solid #a5d9f0;
+  outline-offset: 2px;
+}
+.quake-layer-option {
+  display: grid;
+  grid-template-columns: 16px minmax(0,1fr) auto;
+  gap: 9px;
+  align-items: start;
+  margin-top: 12px;
+  padding: 11px 10px;
+  border: 1px solid rgba(142,171,218,.14);
+  border-radius: 9px;
+  background: rgba(7,16,30,.55);
+  cursor: pointer;
+}
+.quake-layer-option input { margin: 2px 0 0; accent-color: #7bcbd8; }
+.quake-layer-option > span { display: grid; gap: 5px; }
+.quake-layer-option strong { color: #d4e1f6; font-size: 10px; }
+.quake-layer-option small { color: #7e92b1; font-size: 9px; line-height: 1.5; }
+.quake-layer-option b {
+  padding: 3px 5px;
+  border-radius: 5px;
+  background: rgba(96,149,193,.1);
+  color: #9bc9e7;
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+}
+.quake-volcano-event-badge { width: 50px; min-width: 50px; padding: 0 3px; }
+.quake-volcano-event-badge strong { font-size: 9px; letter-spacing: -.02em; }
+.quake-selected-magnitude:has(small) strong { max-width: 100%; overflow-wrap: anywhere; text-align: center; }
+.quake-selected-location h3 { overflow-wrap: anywhere; }
+.phivolcs-footer { line-height: 1.5; }
+@media (max-width: 760px) {
+  .quake-layer-tabs { width: 100%; }
+  .quake-layer-tabs button { flex: 1; justify-content: center; padding: 9px 7px; gap: 6px; font-size: 9px; }
+  .quake-layer-tabs button small { padding: 2px 4px; }
+  .quake-map-controls { top: 51px; right: 8px; }
+  .quake-map-controls button { width: 29px; height: 29px; }
+  .phivolcs-brand-title { font-size: 10px; }
+  .phivolcs-brand-title span { font-size: 7px; }
+}
+@media (max-width: 430px) {
+  .quake-layer-tabs button { font-size: 8px; }
+  .quake-layer-tabs button small { display: none; }
+  .phivolcs-brand-title span { letter-spacing: .085em; }
+}
