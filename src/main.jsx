@@ -1519,7 +1519,7 @@ function App() {
           const country = getVolcanoProperty(properties, ['country']);
           const region = getVolcanoProperty(properties, ['region']);
           const lastEruption = getVolcanoProperty(properties, ['last_erupt', 'last_eruption_year']);
-          const volcanoType = getVolcanoProperty(properties, ['primary_volcano_type', 'volcano_type', 'primary_vo']);
+          const volcanoType = getVolcanoProperty(properties, ['primary_volcano_type', 'volcano_type', 'type']);
           return {
             id: String(number || feature.id || index),
             number: number == null ? '' : String(number),
@@ -1607,7 +1607,7 @@ function App() {
         }).filter(Boolean);
       };
 
-      const fetchUsfsAlerts = async () => {
+      const fetchUSGSAlerts = async () => {
         const response = await fetch(USGS_VOLCANO_ALERTS_URL, {
           cache: 'no-store',
           signal: controller.signal,
@@ -1619,7 +1619,7 @@ function App() {
         return payload;
       };
 
-      const [eonetResult, alertResult] = await Promise.allSettled([fetchEonet(), fetchUsfsAlerts()]);
+      const [eonetResult, alertResult] = await Promise.allSettled([fetchEonet(), fetchUSGSAlerts()]);
       if (cancelled || controller.signal.aborted) return;
 
       if (eonetResult.status === 'fulfilled') {
@@ -2599,7 +2599,7 @@ function App() {
                         aria-label={'Magnitude ' + magnitude.toFixed(1) + ' earthquake: ' + (event.properties?.place || 'location unavailable')}
                         onPointerDown={(event) => event.stopPropagation()}
                         onClick={() => selectMapPoint(event)}
-                        onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); selectMapPoint(event); } }}
+                        onKeyDown={(keyboardEvent) => { if (keyboardEvent.key === 'Enter' || keyboardEvent.key === ' ') { keyboardEvent.preventDefault(); selectMapPoint(event); } }}
                       >
                         <title>{'M' + magnitude.toFixed(1) + ' · ' + (event.properties?.place || 'Location unavailable') + ' · depth ' + Number(coordinates[2]).toFixed(1) + ' km'}</title>
                       </circle>
