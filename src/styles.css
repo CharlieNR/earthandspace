@@ -802,3 +802,41 @@ html[data-reduced-motion='true'] *, html[data-reduced-motion='true'] *::before, 
 @media (prefers-reduced-motion: reduce) {
   .mass-planet-track, .mass-planet-slide { transition: none !important; }
 }
+
+
+/* Shared Earth navigation control in the Mass in Space header. */
+.mass-header-left {
+  display: flex;
+  align-items: center;
+  justify-self: start;
+  gap: 9px;
+  min-width: 0;
+}
+.mass-space .mass-earth-home {
+  display: block;
+  flex: 0 0 35px;
+  width: 35px;
+  height: 35px;
+  padding: 0;
+  border: 0;
+  cursor: pointer;
+  transition: transform .18s ease, box-shadow .18s ease;
+}
+.mass-space .mass-earth-home:hover {
+  transform: scale(1.06);
+  box-shadow: inset -5px -6px 12px rgba(0,0,0,.3), 0 7px 24px rgba(26, 115, 89, .42);
+}
+.mass-space .mass-earth-home:focus-visible,
+.app-shell .brand-mark:focus-visible {
+  outline: 3px solid #d9f5c8;
+  outline-offset: 4px;
+}
+.mass-space .mass-header-left .mass-back { white-space: nowrap; }
+@media (max-width: 560px) {
+  .mass-header-left { gap: 7px; }
+  .mass-space .mass-earth-home {
+    flex-basis: 31px;
+    width: 31px;
+    height: 31px;
+  }
+}
