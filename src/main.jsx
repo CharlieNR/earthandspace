@@ -7,7 +7,12 @@ import './styles.css';
 
 const WORLD_URL = 'https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json';
 const GPLATES_URL = 'https://gws.gplates.org/reconstruct/reconstruct_feature_collection';
-const GPLATES_COASTLINES_URL = 'https://gws.gplates.org/reconstruct/coastlines/';
+const GPLATES_COASTLINES_URLS = [
+  'https://gws.gplates.org/reconstruct/coastlines/',
+  'https://gws1.gplates.org/reconstruct/coastlines/',
+  'https://gws2.gplates.org/reconstruct/coastlines/',
+];
+const GPLATES_COASTLINES_URL = GPLATES_COASTLINES_URLS[0];
 const GPLATES_COUNTRY_URL = 'https://gws.gplates.org/reconstruct/reconstruct_feature_collection';
 const GPLATES_TEST_AGE = 100;
 
@@ -264,25 +269,32 @@ async function fetchWithTimeout(url, options = {}) {
 
 async function fetchReconstructionWithRetry(age, signal) {
   let lastError;
-  for (let attempt = 1; attempt <= FRAME_REQUEST_RETRIES; attempt += 1) {
+  const attempts = Math.max(FRAME_REQUEST_RETRIES, GPLATES_COASTLINES_URLS.length);
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
     if (signal?.aborted) throw new DOMException('Request aborted', 'AbortError');
-    diagnostic('info', 'FRAME', 'Attempt ' + attempt + '/' + FRAME_REQUEST_RETRIES, { age, model: modelForAge(age), source: 'coastlines' });
+    const endpoint = GPLATES_COASTLINES_URLS[(attempt - 1) % GPLATES_COASTLINES_URLS.length];
+    diagnostic('info', 'FRAME', 'Attempt ' + attempt + '/' + attempts, {
+      age,
+      model: modelForAge(age),
+      source: 'coastlines',
+      endpoint,
+    });
     try {
-      return await fetchReconstructionFrame(age, signal);
+      return await fetchReconstructionFrame(age, signal, endpoint);
     } catch (error) {
       lastError = error;
       if (error?.name === 'AbortError' && signal?.aborted) throw error;
-      diagnostic('warn', 'FRAME', 'Attempt failed', { age, attempt, name: error?.name, message: error?.message });
-      if (attempt < FRAME_REQUEST_RETRIES) await sleep(250 * attempt);
+      diagnostic('warn', 'FRAME', 'Attempt failed', { age, attempt, endpoint, name: error?.name, message: error?.message });
+      if (attempt < attempts) await sleep(250 * attempt);
     }
   }
   throw lastError || new Error('Frame request failed');
 }
 
-async function fetchReconstructionFrame(age, signal) {
+async function fetchReconstructionFrame(age, signal, endpoint = GPLATES_COASTLINES_URL) {
   const started = performance.now();
   const model = modelForAge(age);
-  const url = new URL(GPLATES_COASTLINES_URL);
+  const url = new URL(endpoint);
   url.searchParams.set('time', String(age));
   url.searchParams.set('model', model);
   url.searchParams.set('anchor_plate_id', '0');
