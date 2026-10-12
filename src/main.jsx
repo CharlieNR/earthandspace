@@ -1339,7 +1339,7 @@ function App() {
             >
               <span /><span /><span />
             </button>
-            <button className="mass-back" type="button" onClick={() => setSystemSelected('landing')}>← All systems</button>
+
           </div>
           <div className="mass-brand"><span className="mass-brand-orb">✦</span><span>EARTH &amp; SPACE</span></div>
           <span className="mass-header-tag">GRAVITY EXPLORER</span>
