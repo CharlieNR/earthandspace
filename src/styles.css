@@ -840,3 +840,214 @@ html[data-reduced-motion='true'] *, html[data-reduced-motion='true'] *::before, 
     height: 31px;
   }
 }
+
+
+/* PHIVOLCS System — global seismic monitoring workspace */
+.phivolcs-app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  color: #eaf1ff;
+  background:
+    radial-gradient(ellipse at 38% 15%, rgba(33, 73, 125, .22), transparent 42%),
+    radial-gradient(ellipse at 90% 95%, rgba(11, 114, 113, .08), transparent 35%),
+    #050b17;
+  font-family: 'DM Sans', system-ui, sans-serif;
+}
+.phivolcs-header {
+  min-height: 76px;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 13px clamp(14px, 2.2vw, 30px);
+  border-bottom: 1px solid rgba(177, 199, 238, .13);
+  background: rgba(4, 11, 24, .86);
+  backdrop-filter: blur(20px);
+  position: relative;
+  z-index: 2;
+}
+.phivolcs-brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.phivolcs-brand .brand-mark { flex: 0 0 38px; width: 38px; height: 38px; cursor: pointer; padding: 0; border: 0; }
+.phivolcs-brand .brand-mark:focus-visible { outline: 3px solid #a8d5ff; outline-offset: 4px; }
+.phivolcs-brand-title { color: #f3f7ff; font: 800 14px 'Manrope', sans-serif; letter-spacing: .07em; white-space: nowrap; }
+.phivolcs-brand-title span { color: #91b7e8; font-size: 9px; letter-spacing: .17em; margin-left: 8px; }
+.phivolcs-brand-sub { margin-top: 5px; color: #7f91b2; font-size: 10px; letter-spacing: .035em; }
+.phivolcs-header-actions { display: flex; gap: 11px; align-items: center; flex-shrink: 0; }
+.quake-live-state { display: inline-flex; align-items: center; gap: 7px; color: #87e6bd; font-size: 9px; font-weight: 800; letter-spacing: .13em; }
+.quake-live-dot, .quake-source-status { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #72e0ab; box-shadow: 0 0 12px rgba(114,224,171,.55); }
+.quake-live-state.is-loading { color: #f0c979; }
+.quake-live-state.is-loading .quake-live-dot { background: #f0c979; box-shadow: 0 0 12px rgba(240,201,121,.4); animation: quake-pulse 1.2s ease-in-out infinite; }
+.quake-refresh-button {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 9px 12px; border: 1px solid rgba(169,195,237,.25); border-radius: 9px;
+  background: rgba(23,39,65,.7); color: #d9e7ff; cursor: pointer; font-size: 11px;
+}
+.quake-refresh-button:hover:not(:disabled) { background: rgba(39,63,101,.9); border-color: rgba(169,195,237,.55); }
+.quake-refresh-button:disabled { opacity: .6; cursor: wait; }
+.quake-dashboard { display: grid; grid-template-columns: minmax(0, 1fr) minmax(350px, 410px); flex: 1 1 auto; min-height: calc(100vh - 132px); }
+.quake-map-panel { min-width: 0; padding: clamp(16px, 2vw, 27px); display: flex; flex-direction: column; gap: 16px; }
+.quake-heading { display: flex; justify-content: space-between; align-items: flex-end; gap: 18px; }
+.quake-eyebrow { margin: 0 0 8px; color: #76c8d6; font-size: 9px; font-weight: 800; letter-spacing: .2em; }
+.quake-heading h1 { margin: 0; color: #f0f5ff; font: 700 clamp(26px, 3vw, 38px) 'Manrope', sans-serif; letter-spacing: -.055em; }
+.quake-heading > div:first-child > p:last-child { max-width: 610px; margin: 10px 0 0; color: #8fa0bf; font-size: 12px; line-height: 1.65; }
+.quake-stats { flex: 0 0 auto; display: grid; justify-items: end; gap: 3px; padding-bottom: 2px; }
+.quake-stats strong { color: #eff5ff; font: 700 25px 'Manrope', sans-serif; }
+.quake-stats span { color: #97aacb; font-size: 10px; }
+.quake-stats small { margin-top: 3px; color: #6f829f; font-size: 9px; }
+.quake-map-wrap {
+  position: relative;
+  min-width: 0;
+  min-height: 480px;
+  height: min(72vh, 790px);
+  overflow: hidden;
+  border: 1px solid rgba(123, 159, 213, .19);
+  border-radius: 17px;
+  isolation: isolate;
+  background:
+    radial-gradient(circle at 48% 43%, rgba(27,69,107,.4), transparent 45%),
+    radial-gradient(circle at 50% 50%, rgba(14,28,53,.7), rgba(4,9,20,.98) 76%);
+  box-shadow: inset 0 0 85px rgba(0,0,0,.22), 0 18px 45px rgba(0,0,0,.14);
+}
+.quake-map-wrap canvas { outline: none; }
+.quake-map-badges { position: absolute; z-index: 1; top: 13px; left: 14px; right: 14px; display: flex; justify-content: space-between; gap: 10px; pointer-events: none; }
+.quake-map-badges span { padding: 7px 9px; border: 1px solid rgba(166,195,235,.18); border-radius: 6px; background: rgba(5,12,26,.76); color: #a9c5e9; font-size: 8px; font-weight: 800; letter-spacing: .14em; backdrop-filter: blur(10px); }
+.quake-map-footer {
+  position: absolute; z-index: 1; left: 12px; right: 12px; bottom: 12px;
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px 15px;
+  padding: 10px 12px; border: 1px solid rgba(166,195,235,.16); border-radius: 10px;
+  background: rgba(4,10,22,.85); backdrop-filter: blur(12px);
+}
+.quake-map-footer > span { display: inline-flex; align-items: center; gap: 6px; color: #9aaccc; font-size: 9px; white-space: nowrap; }
+.quake-legend-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; box-shadow: 0 0 8px currentColor; }
+.quake-mag-small { background: #71d8c4; color: #71d8c4; }
+.quake-mag-mid { background: #f4cf68; color: #f4cf68; }
+.quake-mag-high { background: #ff9b54; color: #ff9b54; }
+.quake-mag-major { background: #ff526c; color: #ff526c; }
+.quake-map-message { position: absolute; z-index: 2; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 25px; text-align: center; color: #c4d5f2; background: rgba(5,10,22,.75); backdrop-filter: blur(3px); font-size: 12px; }
+.quake-map-error strong { color: #ffc4c7; font-size: 16px; }
+.quake-map-error span { max-width: 420px; color: #b3bfd4; line-height: 1.5; overflow-wrap: anywhere; }
+.quake-map-error button { padding: 8px 12px; border: 1px solid rgba(181,204,242,.32); border-radius: 8px; background: #1b2a46; color: #e3ecff; cursor: pointer; }
+.quake-spinner, .quake-mini-spinner { width: 23px; height: 23px; border: 2px solid rgba(111,200,214,.18); border-top-color: #78d6df; border-radius: 50%; animation: quake-spin .8s linear infinite; }
+.quake-mini-spinner { width: 14px; height: 14px; flex: 0 0 auto; }
+@keyframes quake-spin { to { transform: rotate(360deg); } }
+@keyframes quake-pulse { 0%,100% { opacity: 1; } 50% { opacity: .4; } }
+.quake-magnitude-note { display: grid; grid-template-columns: 26px minmax(0,1fr) auto; align-items: start; gap: 11px; padding: 14px 15px; border: 1px solid rgba(123,159,213,.15); border-radius: 12px; background: rgba(10,20,39,.65); }
+.quake-info-icon { width: 21px; height: 21px; display: grid; place-items: center; border-radius: 50%; color: #86bdda; border: 1px solid rgba(134,189,218,.4); font-size: 11px; font-weight: 800; }
+.quake-magnitude-note p { margin: 0; color: #8f9fba; font-size: 10px; line-height: 1.7; }
+.quake-magnitude-note p strong { color: #d9e5fa; }
+.quake-magnitude-note a, .quake-event-source-link { color: #8dbdf2; text-decoration: none; font-size: 10px; white-space: nowrap; }
+.quake-magnitude-note a:hover, .quake-event-source-link:hover { color: #c1dcff; text-decoration: underline; }
+.quake-sidebar { min-width: 0; display: flex; flex-direction: column; gap: 13px; padding: 17px; border-left: 1px solid rgba(177,199,238,.12); background: rgba(4,10,22,.63); }
+.quake-side-section, .quake-selected-card, .quake-source-panel { border: 1px solid rgba(123,159,213,.17); border-radius: 13px; background: rgba(12,22,41,.78); overflow: hidden; }
+.quake-side-section { padding: 14px; }
+.quake-section-top { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.quake-section-top h2 { margin: 0; color: #e8f0ff; font: 700 17px 'Manrope', sans-serif; letter-spacing: -.025em; }
+.quake-count-pill { min-width: 28px; padding: 5px 7px; border: 1px solid rgba(120,195,220,.26); border-radius: 6px; background: rgba(57,133,157,.12); color: #9de5e6; font-size: 10px; text-align: center; }
+.quake-filter-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 11px 9px; margin-top: 17px; }
+.quake-filter-grid label, .quake-search-label { min-width: 0; display: grid; gap: 6px; }
+.quake-filter-grid label > span, .quake-search-label > span { color: #8f9fbb; font-size: 9px; font-weight: 700; }
+.quake-filter-grid select, .quake-search-label input {
+  width: 100%; min-width: 0; padding: 9px 9px; outline: 0;
+  border: 1px solid rgba(142,171,218,.2); border-radius: 8px;
+  background: #0b162b; color: #dbe8ff; font: 10px 'DM Sans', sans-serif;
+}
+.quake-filter-grid select:focus, .quake-search-label input:focus { border-color: rgba(114,206,222,.65); box-shadow: 0 0 0 2px rgba(114,206,222,.08); }
+.quake-search-label { margin-top: 13px; }
+.quake-search-label input::placeholder { color: #596b89; }
+.quake-auto-refresh { display: flex; gap: 9px; align-items: flex-start; margin-top: 13px; padding-top: 12px; border-top: 1px solid rgba(142,171,218,.12); cursor: pointer; }
+.quake-auto-refresh input { accent-color: #78d6df; margin-top: 2px; }
+.quake-auto-refresh > span { display: grid; gap: 4px; }
+.quake-auto-refresh strong { color: #cddcf4; font-size: 10px; }
+.quake-auto-refresh small { color: #7f91ad; font-size: 9px; }
+.quake-selected-card { padding: 14px; border-color: rgba(124,190,223,.28); background: linear-gradient(135deg, rgba(25,48,78,.88), rgba(10,21,39,.92)); }
+.quake-selected-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; color: #8caed1; font-size: 8px; font-weight: 800; letter-spacing: .17em; }
+.quake-selected-top button { width: 22px; height: 22px; border: 0; border-radius: 5px; background: rgba(255,255,255,.05); color: #aabbda; cursor: pointer; font-size: 17px; }
+.quake-selected-body { display: grid; grid-template-columns: 78px minmax(0,1fr); align-items: center; gap: 13px; margin-top: 12px; }
+.quake-selected-magnitude { width: 76px; height: 76px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; border: 1px solid color-mix(in srgb, var(--quake-color), transparent 35%); border-radius: 15px; background: color-mix(in srgb, var(--quake-color), transparent 91%); }
+.quake-selected-magnitude strong { color: var(--quake-color); font: 800 28px 'Manrope', sans-serif; line-height: 1; }
+.quake-selected-magnitude small { color: #96a9c5; font-size: 7px; font-weight: 800; letter-spacing: .08em; }
+.quake-selected-location { min-width: 0; }
+.quake-selected-location h3 { margin: 0 0 7px; color: #edf4ff; font-size: 12px; line-height: 1.4; }
+.quake-selected-location p { margin: 4px 0; color: #8d9fbc; font-size: 9px; line-height: 1.5; }
+.quake-selected-location p strong { color: #dce8fb; }
+.quake-selected-metrics { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 7px; margin-top: 13px; padding-top: 12px; border-top: 1px solid rgba(166,195,235,.12); }
+.quake-selected-metrics span { display: grid; gap: 4px; min-width: 0; }
+.quake-selected-metrics small { color: #7387a8; font-size: 7px; letter-spacing: .1em; }
+.quake-selected-metrics strong { color: #dbe6fa; font: 600 10px 'Manrope', sans-serif; overflow-wrap: anywhere; }
+.quake-event-source-link { display: inline-block; margin-top: 12px; }
+.quake-event-panel { padding: 0; }
+.quake-event-heading { padding: 14px 14px 11px; }
+.quake-event-list { max-height: 390px; overflow: auto; overscroll-behavior: contain; }
+.quake-event-row { width: 100%; display: grid; grid-template-columns: 47px minmax(0,1fr) auto; gap: 10px; align-items: center; padding: 11px 12px; border: 0; border-top: 1px solid rgba(142,171,218,.1); background: transparent; color: #e7efff; text-align: left; cursor: pointer; }
+.quake-event-row:hover { background: rgba(111,160,218,.08); }
+.quake-event-row.is-selected { background: rgba(75,156,185,.16); box-shadow: inset 3px 0 0 #7bd6e1; }
+.quake-event-mag { width: 42px; height: 42px; display: grid; place-items: center; border: 1px solid color-mix(in srgb, var(--quake-color), transparent 48%); border-radius: 11px; background: color-mix(in srgb, var(--quake-color), transparent 92%); }
+.quake-event-mag strong { color: var(--quake-color); font: 800 14px 'Manrope', sans-serif; }
+.quake-event-copy { display: grid; gap: 4px; min-width: 0; }
+.quake-event-copy strong { color: #dfe9fa; font-size: 10px; font-weight: 700; line-height: 1.45; }
+.quake-event-copy small { color: #7e92b0; font-size: 8px; line-height: 1.35; }
+.quake-event-arrow { color: #8099bd; font-size: 12px; }
+.quake-empty { padding: 20px 14px; color: #8a9fbd; font-size: 10px; line-height: 1.6; }
+.quake-stale-notice { margin: 0; padding: 8px 13px; border-top: 1px solid rgba(255,194,115,.15); background: rgba(255,194,115,.06); color: #e3c998; font-size: 9px; line-height: 1.5; }
+.quake-list-limit { margin: 0; padding: 9px 13px 12px; color: #7488a7; font-size: 9px; }
+.quake-source-panel { padding: 13px 14px; background: rgba(8,17,33,.7); }
+.quake-source-title { display: flex; align-items: center; gap: 8px; color: #a6bad6; font-size: 8px; font-weight: 800; letter-spacing: .16em; }
+.quake-source-panel p { margin: 9px 0; color: #8092af; font-size: 9px; line-height: 1.6; }
+.quake-source-panel p strong { color: #c5d6ef; }
+.quake-source-panel a { display: block; margin-top: 9px; color: #91c5f9; font-size: 10px; text-decoration: none; }
+.quake-source-panel a:hover { text-decoration: underline; color: #cce5ff; }
+.quake-source-panel > small { display: block; margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(142,171,218,.12); color: #6f819f; font-size: 8px; line-height: 1.65; }
+.phivolcs-footer { display: flex; justify-content: space-between; gap: 12px; padding: 12px 22px; border-top: 1px solid rgba(177,199,238,.12); background: rgba(4,10,22,.88); color: #627895; font-size: 8px; letter-spacing: .08em; }
+.phivolcs-footer > span:last-child { letter-spacing: .02em; text-align: right; }
+.footer-separator { color: #3d8b99; margin: 0 6px; }
+@media (max-width: 1050px) {
+  .quake-dashboard { grid-template-columns: minmax(0,1fr) 340px; }
+  .quake-map-panel { padding: 16px; }
+  .quake-sidebar { padding: 12px; }
+  .quake-magnitude-note { grid-template-columns: 24px minmax(0,1fr); }
+  .quake-magnitude-note a { grid-column: 2; }
+  .phivolcs-brand-title { font-size: 12px; }
+  .phivolcs-brand-title span { font-size: 8px; }
+}
+@media (max-width: 760px) {
+  .phivolcs-header { padding: 12px 13px; min-height: 68px; }
+  .phivolcs-brand { gap: 8px; }
+  .phivolcs-brand .brand-mark { width: 33px; height: 33px; flex-basis: 33px; }
+  .phivolcs-brand-title { font-size: 11px; }
+  .phivolcs-brand-title span { display: block; margin: 4px 0 0; font-size: 7px; }
+  .phivolcs-brand-sub { font-size: 8px; }
+  .phivolcs-header-actions { gap: 8px; }
+  .quake-live-state { font-size: 7px; }
+  .quake-refresh-button { padding: 8px; font-size: 10px; }
+  .quake-dashboard { display: flex; flex-direction: column; min-height: 0; }
+  .quake-map-panel { padding: 14px 12px; gap: 12px; }
+  .quake-heading { align-items: flex-start; }
+  .quake-heading h1 { font-size: 27px; }
+  .quake-heading > div:first-child > p:last-child { max-width: 100%; font-size: 10px; }
+  .quake-stats strong { font-size: 20px; }
+  .quake-stats span, .quake-stats small { font-size: 8px; text-align: right; }
+  .quake-map-wrap { height: 65vh; min-height: 410px; max-height: 600px; }
+  .quake-map-footer { gap: 7px 10px; left: 7px; right: 7px; bottom: 7px; padding: 8px; }
+  .quake-map-footer > span { font-size: 8px; }
+  .quake-sidebar { border-left: 0; border-top: 1px solid rgba(177,199,238,.12); padding: 12px; }
+  .quake-event-list { max-height: 440px; }
+  .quake-magnitude-note { padding: 11px; }
+  .phivolcs-footer { padding: 11px 13px; font-size: 7px; }
+}
+@media (max-width: 430px) {
+  .phivolcs-brand-title span { letter-spacing: .12em; }
+  .phivolcs-brand-sub { display: none; }
+  .quake-heading { gap: 8px; }
+  .quake-heading h1 { font-size: 23px; }
+  .quake-stats strong { font-size: 18px; }
+  .quake-stats span { max-width: 60px; }
+  .quake-filter-grid { grid-template-columns: 1fr 1fr; gap: 9px 7px; }
+  .quake-filter-grid select { font-size: 9px; }
+  .phivolcs-footer { flex-direction: column; }
+  .phivolcs-footer > span:last-child { text-align: left; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .quake-spinner, .quake-mini-spinner, .quake-live-state.is-loading .quake-live-dot { animation: none; }
+}
