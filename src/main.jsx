@@ -1228,172 +1228,7 @@ function App() {
     setIsPlaying(false);
   };
 
-  if (systemSelected === 'mass-space') {
-    const massSlides = [...SOLAR_SYSTEM_PLANETS, { name: 'Solar System', overview: true, fact: 'All eight planets in order from the Sun: Mercury, Venus, Earth, Mars, Jupiter, Saturn, Uranus and Neptune.' }];
-    const selectedSlide = massSlides[massPlanetIndex];
-    const massValue = Number(earthMass);
-    const displayMass = Number.isFinite(massValue) && massValue >= 0 ? massValue : 0;
-    const apparentWeight = selectedSlide.overview ? null : displayMass * selectedSlide.gravity;
-    const trackStep = 100 / massSlides.length;
-    return (
-      <main className="mass-space">
-        <header className="mass-space-header">
-          <button className="mass-back" type="button" onClick={() => setSystemSelected('landing')}>← All systems</button>
-          <div className="mass-brand"><span className="mass-brand-orb">✦</span><span>EARTH &amp; SPACE</span></div>
-          <span className="mass-header-tag">GRAVITY EXPLORER</span>
-        </header>
-        <section className="mass-space-main">
-          <p className="mass-eyebrow">YOUR MASS, ELSEWHERE</p>
-          <h1>How much would you <span>weigh?</span></h1>
-          <p className="mass-intro">Enter your mass on Earth, then slide through the planets in order. Start on Earth, or use the arrows to explore.</p>
-          <label className="mass-input-label" htmlFor="earth-mass-input">Your mass on Earth <span>kg</span></label>
-          <div className="mass-input-wrap">
-            <input id="earth-mass-input" type="number" min="0" max="1000000" step="0.1" value={earthMass} onChange={(event) => setEarthMass(event.target.value)} />
-            <span>kg</span>
-          </div>
-          <div className="mass-stage">
-            <button className="mass-arrow mass-arrow-left" type="button" onClick={() => setMassPlanetIndex((index) => Math.max(0, index - 1))} disabled={massPlanetIndex === 0} aria-label="Previous planet">←</button>
-            <div className="mass-planet-window">
-              <div className="mass-planet-track" style={{ transform: 'translateX(-' + (massPlanetIndex * trackStep) + '%)' }}>
-                {massSlides.map((item, index) => (
-                  <div className={index === massPlanetIndex ? 'mass-planet-slide active' : 'mass-planet-slide'} key={item.name} aria-hidden={index !== massPlanetIndex}>
-                    {item.overview ? (
-                      <div className="mass-overview">
-                        <p className="mass-overview-kicker">THE SOLAR SYSTEM</p>
-                        <h2>All eight planets, in order</h2>
-                        <div className="mass-solar-system-art" role="img" aria-label="The eight planets in order from the Sun: Mercury, Venus, Earth, Mars, Jupiter, Saturn, Uranus and Neptune">
-                          <span className="mass-sun" />
-                          {SOLAR_SYSTEM_PLANETS.map((planetItem) => (
-                            <span key={planetItem.name} className={'mass-mini-planet mass-mini-' + planetItem.name.toLowerCase()} title={planetItem.name} style={{ '--planet-texture': 'url("' + planetItem.texture + '")' }} />
-                          ))}
-                        </div>
-                        <div className="mass-solar-labels">{SOLAR_SYSTEM_PLANETS.map((planetItem) => <span key={planetItem.name}>{planetItem.name}</span>)}</div>
-                        <p className="mass-planet-fact">{item.fact}</p>
-                        <div className="mass-overview-weights">
-                          {SOLAR_SYSTEM_PLANETS.map((planetItem) => (
-                            <div key={planetItem.name}><span>{planetItem.name}</span><strong>{(displayMass * planetItem.gravity).toLocaleString(undefined, { maximumFractionDigits: 2 })} <small>kg</small></strong></div>
-                          ))}
-                        </div>
-                      </div>
-                    ) : (
-                      <>
-                        <div className="mass-planet-scene">
-                          <div className={'mass-planet-ball' + (item.name === 'Saturn' ? ' has-rings' : '')} style={{ width: item.diameter + 'px', height: item.diameter + 'px', '--planet-texture': 'url("' + item.texture + '")' }} role="img" aria-label={item.name + ' planet image'}>
-                            <div className="mass-person-cutout" style={{ transform: 'translateX(-50%) scale(' + (item.diameter / 160) + ')' }} aria-hidden="true"><span className="person-head" /><span className="person-body" /><span className="person-leg left" /><span className="person-leg right" /><span className="person-arm left" /><span className="person-arm right" /></div>
-                          </div>
-                      </div>
-                      <div className="mass-planet-title">{item.name}</div>
-                      <div className="mass-planet-fact">{item.fact}</div>
-                      <div className="mass-slide-weight"><span>YOUR WEIGHT ON {item.name.toUpperCase()}</span><strong>{(displayMass * item.gravity).toLocaleString(undefined, { maximumFractionDigits: 2 })} <small>kg-equivalent</small></strong></div>
-                      </>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-            <button className="mass-arrow mass-arrow-right" type="button" onClick={() => setMassPlanetIndex((index) => Math.min(massSlides.length - 1, index + 1))} disabled={massPlanetIndex === massSlides.length - 1} aria-label="Next planet or solar system overview">→</button>
-          </div>
-          <div className="mass-planet-picker" aria-label="Jump to a planet">
-            {SOLAR_SYSTEM_PLANETS.map((item, index) => (
-              <button key={item.name} type="button" className={index === massPlanetIndex ? 'mass-planet-chip active' : 'mass-planet-chip'} onClick={() => setMassPlanetIndex(index)} aria-pressed={index === massPlanetIndex}>
-                {item.name}
-              </button>
-            ))}
-            <button type="button" className={massPlanetIndex === SOLAR_SYSTEM_PLANETS.length ? 'mass-planet-chip active' : 'mass-planet-chip'} onClick={() => setMassPlanetIndex(SOLAR_SYSTEM_PLANETS.length)} aria-pressed={massPlanetIndex === SOLAR_SYSTEM_PLANETS.length}>Solar System</button>
-          </div>
-          {!selectedSlide.overview && <div className="mass-result" aria-live="polite">
-            <div><span>APPARENT WEIGHT ON {selectedSlide.name.toUpperCase()}</span><strong>{apparentWeight.toLocaleString(undefined, { maximumFractionDigits: 2 })} <small>kg-equivalent</small></strong></div>
-            <div className="mass-result-divider" />
-            <div><span>GRAVITY VS EARTH</span><strong>{selectedSlide.gravity.toFixed(3)}×</strong></div>
-          </div>}
-          <p className="mass-science-note"><strong>Science note:</strong> your mass stays the same wherever you go. The weight figures show the equivalent kilograms on a scale calibrated for Earth gravity. Values use approximate surface gravity; the gas and ice giants have no solid surface to stand on, so their figures are comparisons at conventional reference levels.</p>
-          <div className="mass-keyboard-hint"><kbd>←</kbd><kbd>→</kbd> Slide through the planets, then the solar-system overview</div>
-        </section>
-      </main>
-    );
-  }
-
-  if (systemSelected === 'landing') {
-    return (
-      <main className="system-landing">
-        <div className="system-landing-glow" aria-hidden="true" />
-        <header className="system-landing-brand">
-          <span className="system-brand-orb" aria-hidden="true"><span /></span>
-          <span>EARTH SYSTEMS</span>
-        </header>
-        <section className="system-landing-content">
-          <p className="system-eyebrow">A window into our planet</p>
-          <h1>Where Was<br /><span>the Earth?</span></h1>
-          <p className="system-intro">Choose a system to continue.</p>
-          <div className="system-choice-grid">
-            <button className="system-choice system-choice-primary" type="button" onClick={() => setSystemSelected('past-globe')}>
-              <span className="system-choice-icon" aria-hidden="true">◉</span>
-              <span className="system-choice-copy">
-                <strong>Past Globe</strong>
-                <span>Explore the movement of continents through geological time.</span>
-              </span>
-              <span className="system-choice-arrow" aria-hidden="true">↗</span>
-            </button>
-            <button className="system-choice system-choice-primary" type="button" onClick={() => setSystemSelected('mass-space')}>
-              <span className="system-choice-icon" aria-hidden="true">◌</span>
-              <span className="system-choice-copy">
-                <strong>Mass in Space</strong>
-                <span>Compare how gravity changes your weight across the Solar System.</span>
-              </span>
-              <span className="system-choice-arrow" aria-hidden="true">↗</span>
-            </button>
-            <button className="system-choice system-choice-disabled" type="button" disabled aria-disabled="true">
-              <span className="system-choice-icon" aria-hidden="true">⌁</span>
-              <span className="system-choice-copy">
-                <strong>PHIVOLCS System</strong>
-                <span>Earthquake and volcano information tools.</span>
-                <small>COMING SOON</small>
-              </span>
-              <span className="system-choice-lock" aria-hidden="true">—</span>
-            </button>
-          </div>
-          <p className="system-landing-note">More Earth systems will be added here over time.</p>
-        </section>
-      </main>
-    );
-  }
-
-  return (
-    <div className="app-shell">
-      <header className="topbar">
-        <div className="brand">
-          <button
-            className="brand-mark"
-            type="button"
-            onClick={() => {
-              setTerminalOpen((value) => {
-                const next = !value;
-                diagnostic('info', 'UI', next ? 'Diagnostics terminal opened from globe icon' : 'Diagnostics terminal closed from globe icon', {
-                  age,
-                  keyframe: keyframeAge,
-                  cache: cacheProgress.cached + '/' + cacheProgress.total,
-                });
-                return next;
-              });
-            }}
-            aria-expanded={terminalOpen}
-            aria-controls="diagnostics-terminal"
-            aria-label="Open diagnostics terminal"
-            title="Open diagnostics terminal"
-          >
-            <span /><span /><span />
-          </button>
-          <div><div className="brand-name">intheglobe</div><div className="brand-sub">where was the Earth?</div></div>
-        </div>
-        <div className="header-status">
-          <div className="status-dot" data-status={status} /><span>{statusText}</span><span className="status-divider">·</span><span>model {modelForAge(age)}</span><span className="status-divider">·</span><span>keyframes {cacheProgress.cached}/{cacheProgress.total}</span>
-        </div>
-        <div className="header-actions">
-          <button className="present-button" onClick={() => handleAge(0)}><span aria-hidden="true">↻</span> Present day</button>
-        </div>
-      </header>
-
-      {terminalOpen && (
+  const renderTerminal = () => terminalOpen ? (
         <div
           className="diagnostics-overlay"
           role="presentation"
@@ -1471,7 +1306,201 @@ function App() {
             </div>
           </section>
         </div>
-      )}
+  ) : null;
+
+  if (systemSelected === 'mass-space') {
+    const massSlides = [...SOLAR_SYSTEM_PLANETS, { name: 'Solar System', overview: true, fact: 'All eight planets in order from the Sun: Mercury, Venus, Earth, Mars, Jupiter, Saturn, Uranus and Neptune.' }];
+    const selectedSlide = massSlides[massPlanetIndex];
+    const massValue = Number(earthMass);
+    const displayMass = Number.isFinite(massValue) && massValue >= 0 ? massValue : 0;
+    const apparentWeight = selectedSlide.overview ? null : displayMass * selectedSlide.gravity;
+    const trackStep = 100 / massSlides.length;
+    return (
+      <main className="mass-space">
+        <header className="mass-space-header">
+          <div className="mass-header-left">
+            <button
+              className="brand-mark mass-earth-home"
+              type="button"
+              onClick={() => {
+                diagnostic('info', 'UI', 'Returned to the system chooser from the Earth icon', { program: 'Mass in Space' });
+                setTerminalOpen(false);
+                setSystemSelected('landing');
+              }}
+              onContextMenu={(event) => {
+                event.preventDefault();
+                diagnostic('info', 'UI', 'Diagnostics terminal opened from the Earth icon context menu', { program: 'Mass in Space' });
+                setTerminalOpen(true);
+              }}
+              aria-expanded={terminalOpen}
+              aria-controls="diagnostics-terminal"
+              aria-label="Return to home; right-click to open diagnostics terminal"
+              title="Click: Home · Right-click: Diagnostics terminal"
+            >
+              <span /><span /><span />
+            </button>
+            <button className="mass-back" type="button" onClick={() => setSystemSelected('landing')}>← All systems</button>
+          </div>
+          <div className="mass-brand"><span className="mass-brand-orb">✦</span><span>EARTH &amp; SPACE</span></div>
+          <span className="mass-header-tag">GRAVITY EXPLORER</span>
+        </header>
+        <section className="mass-space-main">
+          <p className="mass-eyebrow">YOUR MASS, ELSEWHERE</p>
+          <h1>How much would you <span>weigh?</span></h1>
+          <p className="mass-intro">Enter your mass on Earth, then slide through the planets in order. Start on Earth, or use the arrows to explore.</p>
+          <label className="mass-input-label" htmlFor="earth-mass-input">Your mass on Earth <span>kg</span></label>
+          <div className="mass-input-wrap">
+            <input id="earth-mass-input" type="number" min="0" max="1000000" step="0.1" value={earthMass} onChange={(event) => setEarthMass(event.target.value)} />
+            <span>kg</span>
+          </div>
+          <div className="mass-stage">
+            <button className="mass-arrow mass-arrow-left" type="button" onClick={() => setMassPlanetIndex((index) => Math.max(0, index - 1))} disabled={massPlanetIndex === 0} aria-label="Previous planet">←</button>
+            <div className="mass-planet-window">
+              <div className="mass-planet-track" style={{ transform: 'translateX(-' + (massPlanetIndex * trackStep) + '%)' }}>
+                {massSlides.map((item, index) => (
+                  <div className={index === massPlanetIndex ? 'mass-planet-slide active' : 'mass-planet-slide'} key={item.name} aria-hidden={index !== massPlanetIndex}>
+                    {item.overview ? (
+                      <div className="mass-overview">
+                        <p className="mass-overview-kicker">THE SOLAR SYSTEM</p>
+                        <h2>All eight planets, in order</h2>
+                        <div className="mass-solar-system-art" role="img" aria-label="The eight planets in order from the Sun: Mercury, Venus, Earth, Mars, Jupiter, Saturn, Uranus and Neptune">
+                          <span className="mass-sun" />
+                          {SOLAR_SYSTEM_PLANETS.map((planetItem) => (
+                            <span key={planetItem.name} className={'mass-mini-planet mass-mini-' + planetItem.name.toLowerCase()} title={planetItem.name} style={{ '--planet-texture': 'url("' + planetItem.texture + '")' }} />
+                          ))}
+                        </div>
+                        <div className="mass-solar-labels">{SOLAR_SYSTEM_PLANETS.map((planetItem) => <span key={planetItem.name}>{planetItem.name}</span>)}</div>
+                        <p className="mass-planet-fact">{item.fact}</p>
+                        <div className="mass-overview-weights">
+                          {SOLAR_SYSTEM_PLANETS.map((planetItem) => (
+                            <div key={planetItem.name}><span>{planetItem.name}</span><strong>{(displayMass * planetItem.gravity).toLocaleString(undefined, { maximumFractionDigits: 2 })} <small>kg</small></strong></div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="mass-planet-scene">
+                          <div className={'mass-planet-ball' + (item.name === 'Saturn' ? ' has-rings' : '')} style={{ width: item.diameter + 'px', height: item.diameter + 'px', '--planet-texture': 'url("' + item.texture + '")' }} role="img" aria-label={item.name + ' planet image'}>
+                            <div className="mass-person-cutout" style={{ transform: 'translateX(-50%) scale(' + (item.diameter / 160) + ')' }} aria-hidden="true"><span className="person-head" /><span className="person-body" /><span className="person-leg left" /><span className="person-leg right" /><span className="person-arm left" /><span className="person-arm right" /></div>
+                          </div>
+                      </div>
+                      <div className="mass-planet-title">{item.name}</div>
+                      <div className="mass-planet-fact">{item.fact}</div>
+                      <div className="mass-slide-weight"><span>YOUR WEIGHT ON {item.name.toUpperCase()}</span><strong>{(displayMass * item.gravity).toLocaleString(undefined, { maximumFractionDigits: 2 })} <small>kg-equivalent</small></strong></div>
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+            <button className="mass-arrow mass-arrow-right" type="button" onClick={() => setMassPlanetIndex((index) => Math.min(massSlides.length - 1, index + 1))} disabled={massPlanetIndex === massSlides.length - 1} aria-label="Next planet or solar system overview">→</button>
+          </div>
+          <div className="mass-planet-picker" aria-label="Jump to a planet">
+            {SOLAR_SYSTEM_PLANETS.map((item, index) => (
+              <button key={item.name} type="button" className={index === massPlanetIndex ? 'mass-planet-chip active' : 'mass-planet-chip'} onClick={() => setMassPlanetIndex(index)} aria-pressed={index === massPlanetIndex}>
+                {item.name}
+              </button>
+            ))}
+            <button type="button" className={massPlanetIndex === SOLAR_SYSTEM_PLANETS.length ? 'mass-planet-chip active' : 'mass-planet-chip'} onClick={() => setMassPlanetIndex(SOLAR_SYSTEM_PLANETS.length)} aria-pressed={massPlanetIndex === SOLAR_SYSTEM_PLANETS.length}>Solar System</button>
+          </div>
+          {!selectedSlide.overview && <div className="mass-result" aria-live="polite">
+            <div><span>APPARENT WEIGHT ON {selectedSlide.name.toUpperCase()}</span><strong>{apparentWeight.toLocaleString(undefined, { maximumFractionDigits: 2 })} <small>kg-equivalent</small></strong></div>
+            <div className="mass-result-divider" />
+            <div><span>GRAVITY VS EARTH</span><strong>{selectedSlide.gravity.toFixed(3)}×</strong></div>
+          </div>}
+          <p className="mass-science-note"><strong>Science note:</strong> your mass stays the same wherever you go. The weight figures show the equivalent kilograms on a scale calibrated for Earth gravity. Values use approximate surface gravity; the gas and ice giants have no solid surface to stand on, so their figures are comparisons at conventional reference levels.</p>
+          <div className="mass-keyboard-hint"><kbd>←</kbd><kbd>→</kbd> Slide through the planets, then the solar-system overview</div>
+        </section>
+        {renderTerminal()}
+      </main>
+    );
+  }
+
+  if (systemSelected === 'landing') {
+    return (
+      <main className="system-landing">
+        <div className="system-landing-glow" aria-hidden="true" />
+        <header className="system-landing-brand">
+          <span className="system-brand-orb" aria-hidden="true"><span /></span>
+          <span>EARTH SYSTEMS</span>
+        </header>
+        <section className="system-landing-content">
+          <p className="system-eyebrow">A window into our planet</p>
+          <h1>Where Was<br /><span>the Earth?</span></h1>
+          <p className="system-intro">Choose a system to continue.</p>
+          <div className="system-choice-grid">
+            <button className="system-choice system-choice-primary" type="button" onClick={() => setSystemSelected('past-globe')}>
+              <span className="system-choice-icon" aria-hidden="true">◉</span>
+              <span className="system-choice-copy">
+                <strong>Past Globe</strong>
+                <span>Explore the movement of continents through geological time.</span>
+              </span>
+              <span className="system-choice-arrow" aria-hidden="true">↗</span>
+            </button>
+            <button className="system-choice system-choice-primary" type="button" onClick={() => setSystemSelected('mass-space')}>
+              <span className="system-choice-icon" aria-hidden="true">◌</span>
+              <span className="system-choice-copy">
+                <strong>Mass in Space</strong>
+                <span>Compare how gravity changes your weight across the Solar System.</span>
+              </span>
+              <span className="system-choice-arrow" aria-hidden="true">↗</span>
+            </button>
+            <button className="system-choice system-choice-disabled" type="button" disabled aria-disabled="true">
+              <span className="system-choice-icon" aria-hidden="true">⌁</span>
+              <span className="system-choice-copy">
+                <strong>PHIVOLCS System</strong>
+                <span>Earthquake and volcano information tools.</span>
+                <small>COMING SOON</small>
+              </span>
+              <span className="system-choice-lock" aria-hidden="true">—</span>
+            </button>
+          </div>
+          <p className="system-landing-note">More Earth systems will be added here over time.</p>
+        </section>
+      </main>
+    );
+  }
+
+  return (
+    <div className="app-shell">
+      <header className="topbar">
+        <div className="brand">
+          <button
+            className="brand-mark"
+            type="button"
+            onClick={() => {
+              diagnostic('info', 'UI', 'Returned to the system chooser from the Earth icon');
+              setTerminalOpen(false);
+              setSystemSelected('landing');
+            }}
+            onContextMenu={(event) => {
+              event.preventDefault();
+              diagnostic('info', 'UI', 'Diagnostics terminal opened from the Earth icon context menu', {
+                program: 'Past Globe',
+                age,
+                keyframe: keyframeAge,
+                cache: cacheProgress.cached + '/' + cacheProgress.total,
+              });
+              setTerminalOpen(true);
+            }}
+            aria-expanded={terminalOpen}
+            aria-controls="diagnostics-terminal"
+            aria-label="Return to home; right-click to open diagnostics terminal"
+            title="Click: Home · Right-click: Diagnostics terminal"
+          >
+            <span /><span /><span />
+          </button>
+          <div><div className="brand-name">intheglobe</div><div className="brand-sub">where was the Earth?</div></div>
+        </div>
+        <div className="header-status">
+          <div className="status-dot" data-status={status} /><span>{statusText}</span><span className="status-divider">·</span><span>model {modelForAge(age)}</span><span className="status-divider">·</span><span>keyframes {cacheProgress.cached}/{cacheProgress.total}</span>
+        </div>
+        <div className="header-actions">
+          <button className="present-button" onClick={() => handleAge(0)}><span aria-hidden="true">↻</span> Present day</button>
+        </div>
+      </header>
+
+      {renderTerminal()}
 
       <main className="experience">
         <section className="globe-stage" ref={stageRef} aria-label="Interactive Earth">
