@@ -1247,27 +1247,35 @@ function App() {
               if (cancelled || generation !== cacheGenerationRef.current) return;
             }
 
+            let persistedFrame = loadedFromPersistentStore;
             if (!loadedFromPersistentStore) {
-              const persisted = await putStoredFrame(frameAge, features);
-              if (!persisted) {
-                diagnostic('warn', 'CACHE', 'Keyframe loaded for this session but not confirmed as saved; it will be retried on the next cache pass', {
-                  age: frameAge,
-                  key,
-                  features: features.length,
-                });
+              // Retry the IndexedDB write without refetching the potentially expensive frame.
+              for (let saveAttempt = 1; saveAttempt <= 3 && !persistedFrame; saveAttempt += 1) {
+                persistedFrame = await putStoredFrame(frameAge, features);
+                if (!persistedFrame && saveAttempt < 3) await sleep(180 * saveAttempt);
               }
             }
 
             if (cancelled || generation !== cacheGenerationRef.current) return;
             frameCacheRef.current.set(key, features);
             consecutiveFailures = 0;
-            cached += 1;
-            diagnostic('info', 'CACHE', 'Background keyframe ready', {
-              age: frameAge,
-              source: loadedFromPersistentStore ? 'IndexedDB' : 'network/memory',
-              progress: Math.min(cached, KEYFRAME_AGES.length) + '/' + KEYFRAME_AGES.length,
-            });
-            setCacheProgress({ cached: Math.min(cached, KEYFRAME_AGES.length), total: KEYFRAME_AGES.length });
+            if (persistedFrame) {
+              cached += 1;
+              diagnostic('info', 'CACHE', 'Background keyframe ready and durably saved', {
+                age: frameAge,
+                source: loadedFromPersistentStore ? 'IndexedDB' : 'network then IndexedDB',
+                progress: Math.min(cached, KEYFRAME_AGES.length) + '/' + KEYFRAME_AGES.length,
+              });
+              setCacheProgress({ cached: Math.min(cached, KEYFRAME_AGES.length), total: KEYFRAME_AGES.length });
+            } else {
+              diagnostic('error', 'CACHE', 'Keyframe loaded for this session but could not be persisted after three write attempts', {
+                age: frameAge,
+                key,
+                features: features.length,
+              });
+              setStatus('warning');
+              setStatusText('Some keyframes are memory-only · local cache write failed');
+            }
           } catch (error) {
             if (!cancelled && generation === cacheGenerationRef.current) {
               if (error?.name !== 'AbortError') consecutiveFailures += 1;
@@ -1334,6 +1342,7 @@ function App() {
           }
         }
 
+        let persistenceFailed = false;
         if (!features) {
           const cachedEntries = Array.from(frameCacheRef.current.entries())
             .map(([cacheKey, cachedFeatures]) => ({ age: Number(String(cacheKey).split(':').at(-1)), features: cachedFeatures }))
@@ -1349,13 +1358,19 @@ function App() {
           features = await fetchReconstructionWithRetry(targetAge, controller.signal);
           if (currentRequest !== requestRef.current) return;
           frameCacheRef.current.set(key, features);
-          await putStoredFrame(targetAge, features);
+          const persisted = await putStoredFrame(targetAge, features);
+          persistenceFailed = !persisted;
         }
 
         if (currentRequest !== requestRef.current) return;
         setLand(features);
-        setStatus('ready');
-        setStatusText(shortAge(targetAge) + ' keyframe · cache resumed');
+        if (persistenceFailed) {
+          setStatus('warning');
+          setStatusText(shortAge(targetAge) + ' loaded · browser could not save keyframe');
+        } else {
+          setStatus('ready');
+          setStatusText(shortAge(targetAge) + ' keyframe · local cache resumed');
+        }
       } catch (error) {
         if (currentRequest !== requestRef.current || error?.name === 'AbortError') return;
         console.warn('Reconstruction unavailable after retries; keeping last valid geometry.', error);
