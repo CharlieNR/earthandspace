@@ -1125,7 +1125,7 @@ function App() {
     const onKeyDown = (event) => {
       if (event.altKey || event.ctrlKey || event.metaKey || event.repeat) return;
       const target = event.target;
-      if (target instanceof HTMLElement && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON'].includes(target.tagName))) return;
+      if (target instanceof HTMLElement && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))) return;
       if (event.key === 'ArrowLeft') {
         event.preventDefault();
         setMassPlanetIndex((index) => Math.max(0, index - 1));
