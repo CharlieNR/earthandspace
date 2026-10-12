@@ -37,14 +37,14 @@ const PRELOAD_FAILURE_PAUSE_MS = 12000;
 
 
 const SOLAR_SYSTEM_PLANETS = [
-  { name: 'Mercury', gravity: 0.378, diameter: 42, color: 'linear-gradient(135deg, #d9c9b7 0%, #8d8278 45%, #4a4544 100%)', fact: 'The smallest planet, with a heavily cratered surface.' },
-  { name: 'Venus', gravity: 0.907, diameter: 68, color: 'linear-gradient(135deg, #f8df9b 0%, #d39b54 48%, #754b31 100%)', fact: 'A rocky world wrapped in thick, hot clouds.' },
-  { name: 'Earth', gravity: 1, diameter: 76, color: 'linear-gradient(145deg, #75d5ff 0%, #287ac2 45%, #0c315d 100%)', fact: 'Our home world; the reference for your input mass.' },
-  { name: 'Mars', gravity: 0.377, diameter: 58, color: 'linear-gradient(135deg, #f1a27d 0%, #b64f35 48%, #552a27 100%)', fact: 'A cold desert world with enormous volcanoes and canyons.' },
-  { name: 'Jupiter', gravity: 2.36, diameter: 126, color: 'repeating-linear-gradient(0deg, #b87f5b 0 9px, #e2c29c 9px 18px, #9b6048 18px 26px)', fact: 'The giant planet, with powerful gravity and swirling cloud bands.' },
-  { name: 'Saturn', gravity: 0.916, diameter: 112, color: 'linear-gradient(135deg, #f3dda0 0%, #c6a76a 50%, #786143 100%)', fact: 'A gas giant surrounded by a spectacular ring system.' },
-  { name: 'Uranus', gravity: 0.889, diameter: 94, color: 'linear-gradient(135deg, #b8f6f0 0%, #65c6cf 50%, #347c91 100%)', fact: 'An ice giant that rotates on a dramatic tilt.' },
-  { name: 'Neptune', gravity: 1.12, diameter: 92, color: 'linear-gradient(135deg, #8ab5ff 0%, #3868d5 52%, #192c76 100%)', fact: 'A distant, cold ice giant with very fast winds.' },
+  { name: 'Mercury', gravity: 0.378, diameter: 120, texture: 'https://www.solarsystemscope.com/textures/download/2k_mercury.jpg', fact: 'The smallest planet, with a heavily cratered rocky surface.' },
+  { name: 'Venus', gravity: 0.907, diameter: 145, texture: 'https://www.solarsystemscope.com/textures/download/2k_venus_surface.jpg', fact: 'A rocky world hidden beneath thick, hot clouds.' },
+  { name: 'Earth', gravity: 1, diameter: 160, texture: 'https://www.solarsystemscope.com/textures/download/2k_earth_daymap.jpg', fact: 'Our home world; the reference for your input mass.' },
+  { name: 'Mars', gravity: 0.377, diameter: 135, texture: 'https://www.solarsystemscope.com/textures/download/2k_mars.jpg', fact: 'A cold desert world with enormous volcanoes and canyons.' },
+  { name: 'Jupiter', gravity: 2.36, diameter: 220, texture: 'https://www.solarsystemscope.com/textures/download/2k_jupiter.jpg', fact: 'The largest planet, with powerful gravity and swirling cloud bands.' },
+  { name: 'Saturn', gravity: 0.916, diameter: 205, texture: 'https://www.solarsystemscope.com/textures/download/2k_saturn.jpg', fact: 'A gas giant surrounded by a spectacular ring system.' },
+  { name: 'Uranus', gravity: 0.889, diameter: 180, texture: 'https://www.solarsystemscope.com/textures/download/2k_uranus.jpg', fact: 'An ice giant that rotates on a dramatic tilt.' },
+  { name: 'Neptune', gravity: 1.12, diameter: 178, texture: 'https://www.solarsystemscope.com/textures/download/2k_neptune.jpg', fact: 'A distant, cold ice giant with very fast winds.' },
 ];
 
 const MAX_DIAGNOSTIC_LINES = 2500;
@@ -1131,7 +1131,7 @@ function App() {
         setMassPlanetIndex((index) => Math.max(0, index - 1));
       } else if (event.key === 'ArrowRight') {
         event.preventDefault();
-        setMassPlanetIndex((index) => Math.min(SOLAR_SYSTEM_PLANETS.length - 1, index + 1));
+        setMassPlanetIndex((index) => Math.min(SOLAR_SYSTEM_PLANETS.length, index + 1));
       }
     };
     window.addEventListener('keydown', onKeyDown);
@@ -1229,10 +1229,12 @@ function App() {
   };
 
   if (systemSelected === 'mass-space') {
-    const planet = SOLAR_SYSTEM_PLANETS[massPlanetIndex];
+    const massSlides = [...SOLAR_SYSTEM_PLANETS, { name: 'Solar System', overview: true, fact: 'All eight planets in order from the Sun: Mercury, Venus, Earth, Mars, Jupiter, Saturn, Uranus and Neptune.' }];
+    const selectedSlide = massSlides[massPlanetIndex];
     const massValue = Number(earthMass);
     const displayMass = Number.isFinite(massValue) && massValue >= 0 ? massValue : 0;
-    const apparentWeight = displayMass * planet.gravity;
+    const apparentWeight = selectedSlide.overview ? null : displayMass * selectedSlide.gravity;
+    const trackStep = 100 / massSlides.length;
     return (
       <main className="mass-space">
         <header className="mass-space-header">
@@ -1243,47 +1245,67 @@ function App() {
         <section className="mass-space-main">
           <p className="mass-eyebrow">YOUR MASS, ELSEWHERE</p>
           <h1>How much would you <span>weigh?</span></h1>
-          <p className="mass-intro">Enter your mass on Earth, then travel across the planets to compare the pull of gravity.</p>
+          <p className="mass-intro">Enter your mass on Earth, then slide through the planets in order. Start on Earth, or use the arrows to explore.</p>
           <label className="mass-input-label" htmlFor="earth-mass-input">Your mass on Earth <span>kg</span></label>
           <div className="mass-input-wrap">
             <input id="earth-mass-input" type="number" min="0" max="1000000" step="0.1" value={earthMass} onChange={(event) => setEarthMass(event.target.value)} />
             <span>kg</span>
           </div>
-          <div className="mass-planet-picker" aria-label="Choose a planet">
+          <div className="mass-stage">
+            <button className="mass-arrow mass-arrow-left" type="button" onClick={() => setMassPlanetIndex((index) => Math.max(0, index - 1))} disabled={massPlanetIndex === 0} aria-label="Previous planet">←</button>
+            <div className="mass-planet-window">
+              <div className="mass-planet-track" style={{ transform: 'translateX(-' + (massPlanetIndex * trackStep) + '%)' }}>
+                {massSlides.map((item, index) => (
+                  <div className={index === massPlanetIndex ? 'mass-planet-slide active' : 'mass-planet-slide'} key={item.name} aria-hidden={index !== massPlanetIndex}>
+                    {item.overview ? (
+                      <div className="mass-overview">
+                        <p className="mass-overview-kicker">THE SOLAR SYSTEM</p>
+                        <h2>All eight planets, in order</h2>
+                        <div className="mass-solar-system-art" role="img" aria-label="The eight planets in order from the Sun: Mercury, Venus, Earth, Mars, Jupiter, Saturn, Uranus and Neptune">
+                          <span className="mass-sun" />
+                          {SOLAR_SYSTEM_PLANETS.map((planetItem) => (
+                            <span key={planetItem.name} className={'mass-mini-planet mass-mini-' + planetItem.name.toLowerCase()} title={planetItem.name} style={{ '--planet-texture': 'url("' + planetItem.texture + '")' }} />
+                          ))}
+                        </div>
+                        <div className="mass-solar-labels">{SOLAR_SYSTEM_PLANETS.map((planetItem) => <span key={planetItem.name}>{planetItem.name}</span>)}</div>
+                        <p className="mass-planet-fact">{item.fact}</p>
+                        <div className="mass-overview-weights">
+                          {SOLAR_SYSTEM_PLANETS.map((planetItem) => (
+                            <div key={planetItem.name}><span>{planetItem.name}</span><strong>{(displayMass * planetItem.gravity).toLocaleString(undefined, { maximumFractionDigits: 2 })} <small>kg</small></strong></div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="mass-planet-scene">
+                          <div className={'mass-planet-ball' + (item.name === 'Saturn' ? ' has-rings' : '')} style={{ width: item.diameter + 'px', height: item.diameter + 'px', '--planet-texture': 'url("' + item.texture + '")' }} role="img" aria-label={item.name + ' planet image'} />
+                      </div>
+                      <div className="mass-planet-title">{item.name}</div>
+                      <div className="mass-planet-fact">{item.fact}</div>
+                      <div className="mass-slide-weight"><span>YOUR WEIGHT ON {item.name.toUpperCase()}</span><strong>{(displayMass * item.gravity).toLocaleString(undefined, { maximumFractionDigits: 2 })} <small>kg-equivalent</small></strong></div>
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+            <button className="mass-arrow mass-arrow-right" type="button" onClick={() => setMassPlanetIndex((index) => Math.min(massSlides.length - 1, index + 1))} disabled={massPlanetIndex === massSlides.length - 1} aria-label="Next planet or solar system overview">→</button>
+          </div>
+          <div className="mass-planet-picker" aria-label="Jump to a planet">
             {SOLAR_SYSTEM_PLANETS.map((item, index) => (
               <button key={item.name} type="button" className={index === massPlanetIndex ? 'mass-planet-chip active' : 'mass-planet-chip'} onClick={() => setMassPlanetIndex(index)} aria-pressed={index === massPlanetIndex}>
                 {item.name}
               </button>
             ))}
+            <button type="button" className={massPlanetIndex === SOLAR_SYSTEM_PLANETS.length ? 'mass-planet-chip active' : 'mass-planet-chip'} onClick={() => setMassPlanetIndex(SOLAR_SYSTEM_PLANETS.length)} aria-pressed={massPlanetIndex === SOLAR_SYSTEM_PLANETS.length}>Solar System</button>
           </div>
-          <div className="mass-stage">
-            <button className="mass-arrow mass-arrow-left" type="button" onClick={() => setMassPlanetIndex((index) => Math.max(0, index - 1))} disabled={massPlanetIndex === 0} aria-label="Previous planet">←</button>
-            <div className="mass-planet-window">
-              <div className="mass-planet-track" style={{ transform: 'translateX(-' + (massPlanetIndex * 12.5) + '%)' }}>
-                {SOLAR_SYSTEM_PLANETS.map((item, index) => (
-                  <div className={index === massPlanetIndex ? 'mass-planet-slide active' : 'mass-planet-slide'} key={item.name} aria-hidden={index !== massPlanetIndex}>
-                    <div className="mass-planet-scene">
-                      {item.name === 'Saturn' && <div className="mass-saturn-ring" />}
-                      <div className="mass-planet-ball" style={{ width: item.diameter + 'px', height: item.diameter + 'px', background: item.color }}>
-                        <div className="mass-person-cutout" style={{ transform: 'translateX(-50%) scale(' + (item.diameter / 76) + ')' }} aria-hidden="true"><span className="person-head" /><span className="person-body" /><span className="person-leg left" /><span className="person-leg right" /><span className="person-arm left" /><span className="person-arm right" /></div>
-                      </div>
-                      <div className="mass-planet-shadow" />
-                    </div>
-                    <div className="mass-planet-title">{item.name}</div>
-                    <div className="mass-planet-fact">{item.fact}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-            <button className="mass-arrow mass-arrow-right" type="button" onClick={() => setMassPlanetIndex((index) => Math.min(SOLAR_SYSTEM_PLANETS.length - 1, index + 1))} disabled={massPlanetIndex === SOLAR_SYSTEM_PLANETS.length - 1} aria-label="Next planet">→</button>
-          </div>
-          <div className="mass-result" aria-live="polite">
-            <div><span>APPARENT WEIGHT ON {planet.name.toUpperCase()}</span><strong>{apparentWeight.toLocaleString(undefined, { maximumFractionDigits: 2 })} <small>kg-equivalent</small></strong></div>
+          {!selectedSlide.overview && <div className="mass-result" aria-live="polite">
+            <div><span>APPARENT WEIGHT ON {selectedSlide.name.toUpperCase()}</span><strong>{apparentWeight.toLocaleString(undefined, { maximumFractionDigits: 2 })} <small>kg-equivalent</small></strong></div>
             <div className="mass-result-divider" />
-            <div><span>GRAVITY VS EARTH</span><strong>{planet.gravity.toFixed(3)}×</strong></div>
-          </div>
-          <p className="mass-science-note"><strong>Science note:</strong> your mass stays the same wherever you go. The number above is your weight expressed as the equivalent kilograms on a scale calibrated for Earth gravity. Values use approximate surface gravity; gas giants have no solid surface to stand on, so their result is a comparison at the conventional cloud-top reference level.</p>
-          <div className="mass-keyboard-hint"><kbd>←</kbd><kbd>→</kbd> Use the arrow keys to move between planets</div>
+            <div><span>GRAVITY VS EARTH</span><strong>{selectedSlide.gravity.toFixed(3)}×</strong></div>
+          </div>}
+          <p className="mass-science-note"><strong>Science note:</strong> your mass stays the same wherever you go. The weight figures show the equivalent kilograms on a scale calibrated for Earth gravity. Values use approximate surface gravity; the gas and ice giants have no solid surface to stand on, so their figures are comparisons at conventional reference levels.</p>
+          <div className="mass-keyboard-hint"><kbd>←</kbd><kbd>→</kbd> Slide through the planets, then the solar-system overview</div>
         </section>
       </main>
     );
