@@ -36,6 +36,17 @@ const PRELOAD_FAILURE_PAUSE_MS = 12000;
 
 
 
+const SOLAR_SYSTEM_PLANETS = [
+  { name: 'Mercury', gravity: 0.378, diameter: 42, color: 'linear-gradient(135deg, #d9c9b7 0%, #8d8278 45%, #4a4544 100%)', fact: 'The smallest planet, with a heavily cratered surface.' },
+  { name: 'Venus', gravity: 0.907, diameter: 68, color: 'linear-gradient(135deg, #f8df9b 0%, #d39b54 48%, #754b31 100%)', fact: 'A rocky world wrapped in thick, hot clouds.' },
+  { name: 'Earth', gravity: 1, diameter: 76, color: 'linear-gradient(145deg, #75d5ff 0%, #287ac2 45%, #0c315d 100%)', fact: 'Our home world; the reference for your input mass.' },
+  { name: 'Mars', gravity: 0.377, diameter: 58, color: 'linear-gradient(135deg, #f1a27d 0%, #b64f35 48%, #552a27 100%)', fact: 'A cold desert world with enormous volcanoes and canyons.' },
+  { name: 'Jupiter', gravity: 2.36, diameter: 126, color: 'repeating-linear-gradient(0deg, #b87f5b 0 9px, #e2c29c 9px 18px, #9b6048 18px 26px)', fact: 'The giant planet, with powerful gravity and swirling cloud bands.' },
+  { name: 'Saturn', gravity: 0.916, diameter: 112, color: 'linear-gradient(135deg, #f3dda0 0%, #c6a76a 50%, #786143 100%)', fact: 'A gas giant surrounded by a spectacular ring system.' },
+  { name: 'Uranus', gravity: 0.889, diameter: 94, color: 'linear-gradient(135deg, #b8f6f0 0%, #65c6cf 50%, #347c91 100%)', fact: 'An ice giant that rotates on a dramatic tilt.' },
+  { name: 'Neptune', gravity: 1.12, diameter: 92, color: 'linear-gradient(135deg, #8ab5ff 0%, #3868d5 52%, #192c76 100%)', fact: 'A distant, cold ice giant with very fast winds.' },
+];
+
 const MAX_DIAGNOSTIC_LINES = 2500;
 let diagnosticSink = null;
 
@@ -621,7 +632,9 @@ function App() {
   const globeRef = useRef(null);
   const stageRef = useRef(null);
   const requestRef = useRef(0);
-  const [systemSelected, setSystemSelected] = useState(false);
+  const [systemSelected, setSystemSelected] = useState('landing');
+  const [earthMass, setEarthMass] = useState('60');
+  const [massPlanetIndex, setMassPlanetIndex] = useState(2);
   const [age, setAge] = useState(0);
   const [direction, setDirection] = useState('Start exploring');
   const [land, setLand] = useState([]);
@@ -1107,6 +1120,24 @@ function App() {
     document.documentElement.dataset.reducedMotion = reducedMotion ? 'true' : 'false';
   }, [reducedMotion]);
 
+  useEffect(() => {
+    if (systemSelected !== 'mass-space') return;
+    const onKeyDown = (event) => {
+      if (event.altKey || event.ctrlKey || event.metaKey || event.repeat) return;
+      const target = event.target;
+      if (target instanceof HTMLElement && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON'].includes(target.tagName))) return;
+      if (event.key === 'ArrowLeft') {
+        event.preventDefault();
+        setMassPlanetIndex((index) => Math.max(0, index - 1));
+      } else if (event.key === 'ArrowRight') {
+        event.preventDefault();
+        setMassPlanetIndex((index) => Math.min(SOLAR_SYSTEM_PLANETS.length - 1, index + 1));
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [systemSelected]);
+
   const resetFrames = async () => {
     if (isResettingCache) return;
     diagnostic('warn', 'UI', 'User requested cache reset');
@@ -1197,7 +1228,68 @@ function App() {
     setIsPlaying(false);
   };
 
-  if (!systemSelected) {
+  if (systemSelected === 'mass-space') {
+    const planet = SOLAR_SYSTEM_PLANETS[massPlanetIndex];
+    const massValue = Number(earthMass);
+    const displayMass = Number.isFinite(massValue) && massValue >= 0 ? massValue : 0;
+    const apparentWeight = displayMass * planet.gravity;
+    return (
+      <main className="mass-space">
+        <header className="mass-space-header">
+          <button className="mass-back" type="button" onClick={() => setSystemSelected('landing')}>← All systems</button>
+          <div className="mass-brand"><span className="mass-brand-orb">✦</span><span>EARTH &amp; SPACE</span></div>
+          <span className="mass-header-tag">GRAVITY EXPLORER</span>
+        </header>
+        <section className="mass-space-main">
+          <p className="mass-eyebrow">YOUR MASS, ELSEWHERE</p>
+          <h1>How much would you <span>weigh?</span></h1>
+          <p className="mass-intro">Enter your mass on Earth, then travel across the planets to compare the pull of gravity.</p>
+          <label className="mass-input-label" htmlFor="earth-mass-input">Your mass on Earth <span>kg</span></label>
+          <div className="mass-input-wrap">
+            <input id="earth-mass-input" type="number" min="0" max="1000000" step="0.1" value={earthMass} onChange={(event) => setEarthMass(event.target.value)} />
+            <span>kg</span>
+          </div>
+          <div className="mass-planet-picker" aria-label="Choose a planet">
+            {SOLAR_SYSTEM_PLANETS.map((item, index) => (
+              <button key={item.name} type="button" className={index === massPlanetIndex ? 'mass-planet-chip active' : 'mass-planet-chip'} onClick={() => setMassPlanetIndex(index)} aria-pressed={index === massPlanetIndex}>
+                {item.name}
+              </button>
+            ))}
+          </div>
+          <div className="mass-stage">
+            <button className="mass-arrow mass-arrow-left" type="button" onClick={() => setMassPlanetIndex((index) => Math.max(0, index - 1))} disabled={massPlanetIndex === 0} aria-label="Previous planet">←</button>
+            <div className="mass-planet-window">
+              <div className="mass-planet-track" style={{ transform: 'translateX(calc(50% - ' + (massPlanetIndex * 100 + 50) + '%))' }}>
+                {SOLAR_SYSTEM_PLANETS.map((item, index) => (
+                  <div className={index === massPlanetIndex ? 'mass-planet-slide active' : 'mass-planet-slide'} key={item.name} aria-hidden={index !== massPlanetIndex}>
+                    <div className="mass-planet-scene">
+                      {item.name === 'Saturn' && <div className="mass-saturn-ring" />}
+                      <div className="mass-planet-ball" style={{ width: item.diameter + 'px', height: item.diameter + 'px', background: item.color }}>
+                        <div className="mass-person-cutout" aria-hidden="true"><span className="person-head" /><span className="person-body" /><span className="person-leg left" /><span className="person-leg right" /><span className="person-arm left" /><span className="person-arm right" /></div>
+                      </div>
+                      <div className="mass-planet-shadow" />
+                    </div>
+                    <div className="mass-planet-title">{item.name}</div>
+                    <div className="mass-planet-fact">{item.fact}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <button className="mass-arrow mass-arrow-right" type="button" onClick={() => setMassPlanetIndex((index) => Math.min(SOLAR_SYSTEM_PLANETS.length - 1, index + 1))} disabled={massPlanetIndex === SOLAR_SYSTEM_PLANETS.length - 1} aria-label="Next planet">→</button>
+          </div>
+          <div className="mass-result" aria-live="polite">
+            <div><span>APPARENT WEIGHT ON {planet.name.toUpperCase()}</span><strong>{apparentWeight.toLocaleString(undefined, { maximumFractionDigits: 2 })} <small>kg-equivalent</small></strong></div>
+            <div className="mass-result-divider" />
+            <div><span>GRAVITY VS EARTH</span><strong>{planet.gravity.toFixed(3)}×</strong></div>
+          </div>
+          <p className="mass-science-note"><strong>Science note:</strong> your mass stays the same wherever you go. The number above is your weight expressed as the equivalent kilograms on a scale calibrated for Earth gravity. Values use approximate surface gravity; gas giants have no solid surface to stand on, so their result is a comparison at the conventional cloud-top reference level.</p>
+          <div className="mass-keyboard-hint"><kbd>←</kbd><kbd>→</kbd> Use the arrow keys to move between planets</div>
+        </section>
+      </main>
+    );
+  }
+
+  if (systemSelected === 'landing') {
     return (
       <main className="system-landing">
         <div className="system-landing-glow" aria-hidden="true" />
@@ -1210,11 +1302,19 @@ function App() {
           <h1>Where Was<br /><span>the Earth?</span></h1>
           <p className="system-intro">Choose a system to continue.</p>
           <div className="system-choice-grid">
-            <button className="system-choice system-choice-primary" type="button" onClick={() => setSystemSelected(true)}>
+            <button className="system-choice system-choice-primary" type="button" onClick={() => setSystemSelected('past-globe')}>
               <span className="system-choice-icon" aria-hidden="true">◉</span>
               <span className="system-choice-copy">
                 <strong>Past Globe</strong>
                 <span>Explore the movement of continents through geological time.</span>
+              </span>
+              <span className="system-choice-arrow" aria-hidden="true">↗</span>
+            </button>
+            <button className="system-choice system-choice-primary" type="button" onClick={() => setSystemSelected('mass-space')}>
+              <span className="system-choice-icon" aria-hidden="true">◌</span>
+              <span className="system-choice-copy">
+                <strong>Mass in Space</strong>
+                <span>Compare how gravity changes your weight across the Solar System.</span>
               </span>
               <span className="system-choice-arrow" aria-hidden="true">↗</span>
             </button>
