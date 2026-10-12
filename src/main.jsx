@@ -167,7 +167,7 @@ async function putStoredFrame(age, features) {
   let encoding = 'json';
   let data = json;
 
-  if (typeof CompressionStream === 'function') {
+  if (typeof CompressionStream === 'function' && typeof DecompressionStream === 'function') {
     try {
       const stream = new Blob([json]).stream().pipeThrough(new CompressionStream('gzip'));
       data = await new Response(stream).arrayBuffer();
@@ -180,14 +180,19 @@ async function putStoredFrame(age, features) {
 
   const db = await openFrameDb().catch(() => null);
   if (db) {
-    await new Promise((resolve) => {
-      const transaction = db.transaction(CACHE_STORE_NAME, 'readwrite');
-      transaction.objectStore(CACHE_STORE_NAME).put({ key, age, model: modelForAge(age), encoding, data, savedAt: Date.now() });
-      transaction.oncomplete = resolve;
-      transaction.onerror = resolve;
-    });
-    writeFrameManifestEntry(key);
-    diagnostic('info', 'CACHE', 'Keyframe persisted', { key, compressed: encoding === 'gzip' });
+    try {
+      await new Promise((resolve, reject) => {
+        const transaction = db.transaction(CACHE_STORE_NAME, 'readwrite');
+        transaction.objectStore(CACHE_STORE_NAME).put({ key, age, model: modelForAge(age), encoding, data, savedAt: Date.now() });
+        transaction.oncomplete = resolve;
+        transaction.onerror = () => reject(transaction.error || new Error('IndexedDB write failed'));
+        transaction.onabort = () => reject(transaction.error || new Error('IndexedDB write aborted'));
+      });
+      writeFrameManifestEntry(key);
+      diagnostic('info', 'CACHE', 'Keyframe persisted', { key, compressed: encoding === 'gzip', encoding });
+    } catch (error) {
+      diagnostic('error', 'CACHE', 'Keyframe write failed', { key, name: error?.name, message: error?.message });
+    }
   } else {
     diagnostic('warn', 'CACHE', 'Keyframe could not be persisted because IndexedDB is unavailable', { key });
   }
@@ -319,8 +324,11 @@ async function fetchReconstructionFrame(age, signal) {
     throw new Error('GPlates coastline endpoint returned invalid JSON');
   }
 
+  const supportedLandGeometry = (geometry) => geometry
+    && (geometry.type === 'Polygon' || geometry.type === 'MultiPolygon');
+
   const features = flattenFeatures(reconstructed)
-    .filter((feature) => feature.geometry)
+    .filter((feature) => supportedLandGeometry(feature.geometry))
     .map((feature) => ({
       type: 'Feature',
       properties: feature.properties || {},
@@ -446,14 +454,32 @@ async function fetchCountryReconstructionWithRetry(country, age, signal) {
       model: modelForAge(age),
     });
     try {
+      const countryName = country?.properties?.name || countryKey(country);
+      const polygonGeometries = [];
+      const collectPolygons = (geometry) => {
+        if (!geometry) return;
+        if (geometry.type === 'Polygon') {
+          polygonGeometries.push(geometry);
+        } else if (geometry.type === 'MultiPolygon') {
+          geometry.coordinates.forEach((coordinates) => {
+            polygonGeometries.push({ type: 'Polygon', coordinates });
+          });
+        } else if (geometry.type === 'GeometryCollection') {
+          geometry.geometries.forEach(collectPolygons);
+        }
+      };
+      collectPolygons(country.geometry);
+      if (!polygonGeometries.length) {
+        throw new Error('The selected country has no polygon land geometry to track');
+      }
       const featureCollection = {
         type: 'FeatureCollection',
-        features: [{
+        features: polygonGeometries.map((geometry, index) => ({
           type: 'Feature',
-          id: country?.id,
-          properties: { name: country?.properties?.name || countryKey(country) },
-          geometry: country.geometry,
-        }],
+          id: String(country?.id || countryName) + '-' + index,
+          properties: { name: countryName, sourceCountryId: country?.id || null },
+          geometry,
+        })),
       };
       const payload = new URLSearchParams();
       payload.set('feature_collection', JSON.stringify(featureCollection));
@@ -559,6 +585,7 @@ function App() {
   const globeRef = useRef(null);
   const stageRef = useRef(null);
   const requestRef = useRef(0);
+  const [systemSelected, setSystemSelected] = useState(false);
   const [age, setAge] = useState(0);
   const [direction, setDirection] = useState('Start exploring');
   const [land, setLand] = useState([]);
@@ -1105,9 +1132,9 @@ function App() {
     setSelected({
       kind: 'country',
       title: name,
-      kicker: 'Tracking · modern country geography',
-      summary: 'The pink land shows where the territory represented by this present-day country reconstructs through geological time.',
-      body: 'In the past, the country outline becomes a model-based reconstruction of the selected present-day territory. Other country boundaries remain as a faint modern-day wireframe reference.',
+      kicker: 'Tracking · ancestral land',
+      summary: 'The pink land follows the separate polygon fragments that make up this country today as GPlates reconstructs their movement through geological time.',
+      body: 'Modern political borders did not exist in deep time. This feature tracks the underlying land fragments, assigning each polygon separately so fragments that sit on different tectonic plates can move independently. Results depend on the reconstruction model and its data coverage.',
     });
     focus(centroid.lat, centroid.lng, 1.55);
     diagnostic('info', 'COUNTRY', 'Country tracking enabled', { country: name, id: countryKey(country) });
@@ -1127,6 +1154,43 @@ function App() {
     setAge(next);
     setIsPlaying(false);
   };
+
+  if (!systemSelected) {
+    return (
+      <main className="system-landing">
+        <div className="system-landing-glow" aria-hidden="true" />
+        <header className="system-landing-brand">
+          <span className="system-brand-orb" aria-hidden="true"><span /></span>
+          <span>EARTH SYSTEMS</span>
+        </header>
+        <section className="system-landing-content">
+          <p className="system-eyebrow">A window into our planet</p>
+          <h1>Where Was<br /><span>the Earth?</span></h1>
+          <p className="system-intro">Choose a system to continue.</p>
+          <div className="system-choice-grid">
+            <button className="system-choice system-choice-primary" type="button" onClick={() => setSystemSelected(true)}>
+              <span className="system-choice-icon" aria-hidden="true">◉</span>
+              <span className="system-choice-copy">
+                <strong>Past Globe</strong>
+                <span>Explore the movement of continents through geological time.</span>
+              </span>
+              <span className="system-choice-arrow" aria-hidden="true">↗</span>
+            </button>
+            <button className="system-choice system-choice-disabled" type="button" disabled aria-disabled="true">
+              <span className="system-choice-icon" aria-hidden="true">⌁</span>
+              <span className="system-choice-copy">
+                <strong>PHIVOLCS System</strong>
+                <span>Earthquake and volcano information tools.</span>
+                <small>COMING SOON</small>
+              </span>
+              <span className="system-choice-lock" aria-hidden="true">—</span>
+            </button>
+          </div>
+          <p className="system-landing-note">More Earth systems will be added here over time.</p>
+        </section>
+      </main>
+    );
+  }
 
   return (
     <div className="app-shell">
@@ -1262,11 +1326,11 @@ function App() {
             polygonAltitude={(feature) => feature.__layer === 'tracked' ? 0.016 : 0.01}
             polygonCapColor={(feature) => {
               if (feature.__layer === 'tracked') return '#ff5caf';
-              return age < 0.1 ? 'rgba(0,0,0,0)' : '#79985f';
+              return age < 0.1 ? 'rgba(0,0,0,0)' : '#6d8f59';
             }}
             polygonSideColor={(feature) => {
               if (feature.__layer === 'tracked') return '#d43f8e';
-              return age < 0.1 ? 'rgba(0,0,0,0)' : '#5d794f';
+              return age < 0.1 ? 'rgba(0,0,0,0)' : '#4e7048';
             }}
             polygonStrokeColor={(feature) => feature.__layer === 'tracked' ? '#ffd1ea' : age < 0.1 ? 'rgba(255,255,255,0.15)' : 'rgba(232,246,215,0.75)'}
             polygonLabel={(feature) => feature.__layer === 'tracked'
