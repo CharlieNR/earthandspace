@@ -468,3 +468,130 @@ html[data-reduced-motion='true'] *, html[data-reduced-motion='true'] *::before, 
   .system-choice-grid { grid-template-columns: 1fr; }
   .system-choice { min-height: 140px; padding: 18px; }
 }
+
+
+/* Mass in Space: planet-to-planet gravity comparison */
+.mass-space {
+  min-height: 100vh;
+  overflow: hidden;
+  color: #eef5ff;
+  background:
+    radial-gradient(ellipse at 50% 34%, rgba(47, 89, 171, .2), transparent 42%),
+    radial-gradient(ellipse at 8% 92%, rgba(97, 64, 160, .13), transparent 34%),
+    linear-gradient(145deg, #050a18 0%, #09142a 52%, #050813 100%);
+  position: relative;
+}
+.mass-space::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  opacity: .24;
+  pointer-events: none;
+  background-image: radial-gradient(1px 1px at 7% 18%, #fff 50%, transparent 100%), radial-gradient(1px 1px at 23% 73%, #b9d6ff 50%, transparent 100%), radial-gradient(2px 2px at 82% 22%, #fff 50%, transparent 100%), radial-gradient(1px 1px at 91% 68%, #fff 50%, transparent 100%), radial-gradient(1px 1px at 62% 83%, #c7d9ff 50%, transparent 100%), radial-gradient(1px 1px at 46% 9%, #fff 50%, transparent 100%);
+}
+.mass-space-header {
+  position: relative;
+  z-index: 1;
+  min-height: 76px;
+  padding: 17px clamp(18px, 4vw, 54px);
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 16px;
+  border-bottom: 1px solid rgba(195, 214, 255, .1);
+}
+.mass-back {
+  justify-self: start;
+  border: 1px solid rgba(195,214,255,.15);
+  border-radius: 999px;
+  padding: 9px 13px;
+  background: rgba(9,20,43,.72);
+  color: #c4d4f3;
+  cursor: pointer;
+  font-size: 11px;
+  transition: border-color .2s, background .2s;
+}
+.mass-back:hover { border-color: rgba(144,179,255,.5); background: rgba(27,44,81,.8); }
+.mass-brand { display: flex; align-items: center; gap: 9px; color: #b7c8e8; font-size: 10px; font-weight: 800; letter-spacing: .18em; white-space: nowrap; }
+.mass-brand-orb { display: grid; place-items: center; width: 27px; height: 27px; border: 1px solid rgba(156,188,255,.4); border-radius: 50%; color: #a9c6ff; background: radial-gradient(circle at 30% 25%, #324b81, #111b38 70%); }
+.mass-header-tag { justify-self: end; color: #778bb4; font-size: 9px; font-weight: 800; letter-spacing: .17em; }
+.mass-space-main { position: relative; z-index: 1; width: min(960px, calc(100% - 36px)); margin: 0 auto; padding: 46px 0 36px; }
+.mass-eyebrow { margin: 0 0 12px; color: #91b4ff; font-size: 10px; font-weight: 800; letter-spacing: .22em; }
+.mass-space h1 { margin: 0; font-family: 'Manrope', sans-serif; font-size: clamp(35px, 5.4vw, 60px); letter-spacing: -.065em; line-height: 1.03; }
+.mass-space h1 span { color: #a4c1ff; }
+.mass-intro { max-width: 600px; margin: 14px 0 28px; color: #9aabc9; font-size: 13px; line-height: 1.7; }
+.mass-input-label { display: flex; align-items: center; gap: 9px; color: #e1eaff; font-size: 11px; font-weight: 700; }
+.mass-input-label span { color: #8196bd; font-weight: 500; }
+.mass-input-wrap { display: flex; align-items: center; gap: 10px; width: min(270px, 100%); margin-top: 9px; padding: 0 13px; border: 1px solid rgba(156,188,255,.23); border-radius: 13px; background: rgba(10,22,46,.78); box-shadow: 0 8px 26px rgba(0,0,0,.12); }
+.mass-input-wrap:focus-within { border-color: rgba(156,188,255,.65); box-shadow: 0 0 0 3px rgba(122,159,240,.1); }
+.mass-input-wrap input { width: 100%; min-width: 0; padding: 13px 0; border: 0; outline: 0; background: transparent; color: #f5f8ff; font: 700 18px 'Manrope', sans-serif; }
+.mass-input-wrap input::-webkit-inner-spin-button { opacity: .6; }
+.mass-input-wrap > span { color: #8297bd; font-size: 12px; }
+.mass-planet-picker { display: flex; flex-wrap: wrap; gap: 7px; margin: 22px 0 0; }
+.mass-planet-chip { border: 1px solid rgba(156,188,255,.15); border-radius: 999px; padding: 8px 12px; color: #9aabca; background: rgba(9,20,43,.58); cursor: pointer; font-size: 10px; transition: color .2s, background .2s, border-color .2s, transform .2s; }
+.mass-planet-chip:hover { color: #eaf0ff; border-color: rgba(156,188,255,.42); transform: translateY(-1px); }
+.mass-planet-chip.active { color: #f4f7ff; border-color: rgba(156,188,255,.62); background: rgba(103,139,218,.2); box-shadow: inset 0 0 0 1px rgba(156,188,255,.08), 0 0 20px rgba(81,119,209,.1); }
+.mass-stage { display: grid; grid-template-columns: 44px minmax(0,1fr) 44px; gap: 12px; align-items: center; margin-top: 8px; }
+.mass-arrow { width: 42px; height: 42px; display: grid; place-items: center; border: 1px solid rgba(156,188,255,.2); border-radius: 50%; background: rgba(12,25,52,.82); color: #d9e5ff; cursor: pointer; font-size: 22px; transition: transform .2s, border-color .2s, opacity .2s; }
+.mass-arrow:hover:not(:disabled) { transform: scale(1.06); border-color: rgba(156,188,255,.62); }
+.mass-arrow:disabled { opacity: .24; cursor: default; }
+.mass-planet-window { min-width: 0; overflow: hidden; }
+.mass-planet-track { display: flex; width: 800%; align-items: stretch; transition: transform 620ms cubic-bezier(.22,.78,.25,1); will-change: transform; }
+.mass-planet-slide { flex: 0 0 12.5%; min-width: 0; display: flex; flex-direction: column; align-items: center; padding: 12px 18px 5px; text-align: center; opacity: .42; transform: scale(.97); transition: opacity 350ms ease, transform 450ms ease; }
+.mass-planet-slide.active { opacity: 1; transform: scale(1); }
+.mass-planet-scene { position: relative; width: 100%; min-height: 202px; display: flex; align-items: center; justify-content: center; isolation: isolate; }
+.mass-planet-scene::before { content: ""; position: absolute; z-index: -1; width: min(70%, 340px); height: 150px; border-radius: 50%; background: radial-gradient(ellipse, rgba(78,111,192,.13), transparent 70%); }
+.mass-planet-ball { position: relative; flex: 0 0 auto; border-radius: 50%; overflow: visible; box-shadow: inset -14px -12px 22px rgba(0,0,0,.45), inset 8px 7px 15px rgba(255,255,255,.18), 0 0 45px rgba(95,139,228,.13); animation: mass-planet-float 5s ease-in-out infinite; }
+.mass-planet-ball::after { content: ""; position: absolute; inset: 0; border-radius: inherit; background: linear-gradient(110deg, rgba(255,255,255,.17), transparent 42%, rgba(0,0,0,.18) 78%); pointer-events: none; }
+.mass-planet-slide.active .mass-planet-ball { box-shadow: inset -14px -12px 22px rgba(0,0,0,.42), inset 8px 7px 15px rgba(255,255,255,.19), 0 0 55px rgba(95,139,228,.22); }
+.mass-person-cutout { position: absolute; z-index: 2; left: 50%; bottom: 7%; width: 26px; height: 51px; transform: translateX(-50%); filter: drop-shadow(0 1px 2px rgba(0,0,0,.65)); }
+.mass-person-cutout span { position: absolute; display: block; background: #07101f; }
+.person-head { width: 9px; height: 9px; border-radius: 50%; left: 9px; top: 0; }
+.person-body { width: 13px; height: 22px; border-radius: 6px 6px 3px 3px; left: 7px; top: 10px; }
+.person-leg { width: 5px; height: 17px; top: 29px; border-radius: 0 0 3px 3px; transform-origin: top; }
+.person-leg.left { left: 8px; transform: rotate(5deg); }
+.person-leg.right { left: 14px; transform: rotate(-5deg); }
+.person-arm { width: 5px; height: 19px; top: 11px; border-radius: 4px; transform-origin: top; }
+.person-arm.left { left: 5px; transform: rotate(18deg); }
+.person-arm.right { left: 17px; transform: rotate(-18deg); }
+.mass-planet-shadow { position: absolute; bottom: 13px; width: 110px; height: 13px; border-radius: 50%; background: rgba(0,0,0,.22); filter: blur(7px); }
+.mass-saturn-ring { position: absolute; z-index: 0; width: 155px; height: 46px; border: 10px solid rgba(223,199,144,.58); border-left-color: rgba(243,224,173,.8); border-right-color: rgba(135,112,78,.68); border-radius: 50%; transform: rotate(-16deg); box-shadow: 0 0 12px rgba(221,192,132,.12); }
+.mass-planet-title { margin-top: 3px; color: #f3f6ff; font: 700 23px 'Manrope', sans-serif; letter-spacing: -.04em; }
+.mass-planet-fact { min-height: 38px; max-width: 390px; margin-top: 7px; color: #94a7ca; font-size: 11px; line-height: 1.6; }
+.mass-result { display: grid; grid-template-columns: minmax(0,1fr) 1px minmax(0,.6fr); gap: 22px; align-items: center; margin: 19px 56px 0; padding: 19px 22px; border: 1px solid rgba(156,188,255,.18); border-radius: 16px; background: linear-gradient(120deg, rgba(22,39,75,.72), rgba(10,21,44,.75)); box-shadow: 0 14px 38px rgba(0,0,0,.12); }
+.mass-result > div:not(.mass-result-divider) { display: grid; gap: 7px; }
+.mass-result span { color: #8fa5d0; font-size: 8px; font-weight: 800; letter-spacing: .15em; }
+.mass-result strong { color: #f2f6ff; font: 700 clamp(21px, 3vw, 32px) 'Manrope', sans-serif; letter-spacing: -.04em; overflow-wrap: anywhere; }
+.mass-result strong small { color: #9aafd7; font: 500 11px 'DM Sans', sans-serif; letter-spacing: 0; }
+.mass-result-divider { width: 1px; height: 48px; background: rgba(156,188,255,.18); }
+.mass-science-note { margin: 17px 56px 0; color: #8194b8; font-size: 10px; line-height: 1.7; }
+.mass-science-note strong { color: #b6c8ed; }
+.mass-keyboard-hint { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 22px; color: #7f93b9; font-size: 10px; }
+.mass-keyboard-hint kbd { min-width: 22px; padding: 4px 6px; border: 1px solid rgba(156,188,255,.2); border-bottom-width: 2px; border-radius: 5px; color: #c5d5f4; background: rgba(13,27,55,.8); text-align: center; }
+@keyframes mass-planet-float { 0%,100% { translate: 0 0; } 50% { translate: 0 -5px; } }
+.system-choice-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 800px) {
+  .system-choice-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .mass-space-main { padding-top: 34px; }
+  .mass-result, .mass-science-note { margin-left: 20px; margin-right: 20px; }
+}
+@media (max-width: 560px) {
+  .mass-space-header { grid-template-columns: 1fr auto; gap: 10px; padding: 13px 14px; }
+  .mass-brand { display: none; }
+  .mass-header-tag { grid-column: 2; grid-row: 1; font-size: 8px; }
+  .mass-space-main { width: calc(100% - 26px); padding-top: 28px; }
+  .mass-intro { font-size: 12px; }
+  .system-choice-grid { grid-template-columns: 1fr; }
+  .mass-stage { grid-template-columns: 32px minmax(0,1fr) 32px; gap: 4px; }
+  .mass-arrow { width: 31px; height: 31px; font-size: 17px; }
+  .mass-planet-slide { padding-left: 4px; padding-right: 4px; }
+  .mass-planet-scene { min-height: 165px; }
+  .mass-result { grid-template-columns: minmax(0,1fr) 1px minmax(0,.65fr); gap: 12px; margin: 14px 0 0; padding: 14px 12px; }
+  .mass-result strong small { display: block; margin-top: 3px; }
+  .mass-science-note { margin: 13px 2px 0; }
+  .mass-planet-title { font-size: 20px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mass-planet-track, .mass-planet-slide { transition: none !important; }
+  .mass-planet-ball { animation: none !important; }
+}
