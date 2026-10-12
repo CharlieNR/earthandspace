@@ -197,7 +197,7 @@ function eonetGeometryPoint(geometry) {
 }
 
 function volcanoAlertColour(alert) {
-  const color = String(alert?.color_code || '').toUpperCase();
+  const color = String(alert?.color_code || alert?.colorCode || '').toUpperCase();
   if (color === 'RED') return '#ff5b65';
   if (color === 'ORANGE') return '#ff9b58';
   if (color === 'YELLOW') return '#f2d26c';
@@ -2357,7 +2357,7 @@ function App() {
     const selectedCoordinates = selectedQuake?.geometry?.coordinates || [];
     const selectedVolcanoPoint = [
       ...volcanoMapPoints,
-      ...volcanoActivityRows,
+      ...volcanoActivityRows.map((item) => item.type === 'activity' ? { ...item, id: 'volcano-activity-' + item.id } : item),
       ...volcanoSitesWithAlerts.map((site) => ({ ...site, id: 'volcano-site-' + site.id, type: 'site' })),
     ].find((item) => item.id === volcanoSelectedId) || null;
     const visibleVolcanoCount = volcanoMapPoints.length;
@@ -2636,7 +2636,7 @@ function App() {
                         onClick={() => selectMapPoint(point)}
                         onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); selectMapPoint(point); } }}
                       >
-                        <title>{point.name + (point.type === 'activity' ? ' · reported volcanic activity' : point.type === 'alert' ? ' · USGS ' + point.alertLevel : point.alert ? ' · USGS ' + point.alert.alert_level : ' · Holocene volcano catalogue')}</title>
+                        <title>{point.name + (point.type === 'activity' ? ' · reported volcanic activity' : point.type === 'alert' ? ' · USGS ' + point.alertLevel : (showUSGSVolcanoAlerts && point.alert) ? ' · USGS ' + point.alert.alert_level : ' · Holocene volcano catalogue')}</title>
                       </circle>
                     );
                   })}
