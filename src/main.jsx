@@ -1259,7 +1259,7 @@ function App() {
           <div className="mass-stage">
             <button className="mass-arrow mass-arrow-left" type="button" onClick={() => setMassPlanetIndex((index) => Math.max(0, index - 1))} disabled={massPlanetIndex === 0} aria-label="Previous planet">←</button>
             <div className="mass-planet-window">
-              <div className="mass-planet-track" style={{ transform: 'translateX(calc(50% - ' + (massPlanetIndex * 100 + 50) + '%))' }}>
+              <div className="mass-planet-track" style={{ transform: 'translateX(-' + (massPlanetIndex * 12.5) + '%)' }}>
                 {SOLAR_SYSTEM_PLANETS.map((item, index) => (
                   <div className={index === massPlanetIndex ? 'mass-planet-slide active' : 'mass-planet-slide'} key={item.name} aria-hidden={index !== massPlanetIndex}>
                     <div className="mass-planet-scene">
