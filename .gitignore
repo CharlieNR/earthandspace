@@ -1,0 +1,13 @@
+# Dependencies and build artefacts
+node_modules/
+dist/
+.vite/
+
+# Local environment files
+.env
+.env.*
+!.env.example
+
+# Local Cloudflare control API secrets
+/control-api/.secrets.local.json
+/control-api/.dev.vars
