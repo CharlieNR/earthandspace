@@ -1775,3 +1775,34 @@ html[data-reduced-motion='true'] *, html[data-reduced-motion='true'] *::before, 
   .terminal-command-form label { grid-column: 1 / -1; }
   .terminal-auth-panel { padding: 22px; }
 }
+
+
+/* Copy the direct link for the currently open Earth Systems app */
+.copy-system-link-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  flex: 0 0 auto;
+  padding: 8px 11px;
+  border: 1px solid rgba(155, 211, 195, .24);
+  border-radius: 9px;
+  color: #c4e7dc;
+  background: rgba(12, 35, 34, .7);
+  cursor: pointer;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 800;
+  white-space: nowrap;
+  transition: border-color .16s ease, background .16s ease, color .16s ease;
+}
+.copy-system-link-button:hover, .copy-system-link-button:focus-visible {
+  color: #f0fff8;
+  border-color: rgba(155, 231, 201, .55);
+  background: rgba(35, 78, 67, .72);
+}
+.mass-header-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
+@media (max-width: 720px) {
+  .copy-system-link-button { padding: 7px 8px; font-size: 9px; }
+  .mass-header-actions { gap: 6px; }
+}
