@@ -35,7 +35,7 @@ button { color: inherit; }
   border-bottom: 1px solid var(--line); background: rgba(5, 22, 18, 0.74); backdrop-filter: blur(24px);
 }
 .brand { display: flex; align-items: center; gap: 11px; min-width: 0; }
-.brand-mark { width: 35px; height: 35px; border-radius: 50%; position: relative; overflow: hidden; background: #071b32 url('https://www.solarsystemscope.com/textures/download/2k_earth_daymap.jpg') center / cover no-repeat; box-shadow: inset -5px -6px 12px rgba(0,0,0,.3), 0 7px 18px rgba(26, 115, 89, .24); }
+.brand-mark { width: 35px; height: 35px; border-radius: 50%; position: relative; overflow: hidden; background: #071b32 url('../earth-icon.svg') center / cover no-repeat; box-shadow: inset -5px -6px 12px rgba(0,0,0,.3), 0 7px 18px rgba(26, 115, 89, .24); }
 .brand-mark span { display: none; }
 .brand-name { font-family: 'Manrope', sans-serif; font-size: 17px; font-weight: 800; letter-spacing: -.04em; }
 .brand-sub { font-size: 10px; color: var(--muted); letter-spacing: .08em; text-transform: uppercase; margin-top: 1px; white-space: nowrap; }
@@ -58,7 +58,7 @@ button { color: inherit; }
   position: relative;
   overflow: hidden;
   cursor: pointer;
-  background: #071b32 url('https://www.solarsystemscope.com/textures/download/2k_earth_daymap.jpg') center / cover no-repeat;
+  background: #071b32 url('../earth-icon.svg') center / cover no-repeat;
   box-shadow: inset -5px -6px 12px rgba(0,0,0,.3), 0 7px 18px rgba(26, 115, 89, .24);
   transition: transform .15s ease, box-shadow .15s ease, outline-color .15s ease;
 }
@@ -437,7 +437,7 @@ html[data-reduced-motion='true'] *, html[data-reduced-motion='true'] *::before, 
 .copy-system-links-button:hover { border-color: rgba(140,222,182,.65); background: rgba(14,49,38,.9); transform: translateY(-1px); }
 .copy-system-links-button:focus-visible { outline: 3px solid #d9f5c8; outline-offset: 4px; }
 .copy-system-links-button > span { font-size: 16px; }
-.system-brand-orb { width: 30px; height: 30px; display: grid; place-items: center; border: 1px solid rgba(177, 232, 197, .6); border-radius: 50%; background: #071b32 url('https://www.solarsystemscope.com/textures/download/2k_earth_daymap.jpg') center / cover no-repeat; box-shadow: 0 0 28px rgba(87, 196, 144, .16); overflow: hidden; }
+.system-brand-orb { width: 30px; height: 30px; display: grid; place-items: center; border: 1px solid rgba(177, 232, 197, .6); border-radius: 50%; background: #071b32 url('../earth-icon.svg') center / cover no-repeat; box-shadow: 0 0 28px rgba(87, 196, 144, .16); overflow: hidden; }
 .system-brand-orb span { display: none; }
 .system-landing-content { width: min(850px, calc(100% - 40px)); margin: auto; padding: 50px 0 90px; }
 .system-eyebrow { margin: 0 0 16px; color: #8cdeb6; font-size: 10px; font-weight: 800; letter-spacing: .22em; text-transform: uppercase; }
@@ -513,7 +513,7 @@ html[data-reduced-motion='true'] *, html[data-reduced-motion='true'] *::before, 
 }
 .mass-back:hover { border-color: rgba(144,179,255,.5); background: rgba(27,44,81,.8); }
 .mass-brand { display: flex; align-items: center; gap: 9px; color: #b7c8e8; font-size: 10px; font-weight: 800; letter-spacing: .18em; white-space: nowrap; }
-.mass-brand-orb { display: grid; place-items: center; width: 27px; height: 27px; border: 1px solid rgba(156,188,255,.4); border-radius: 50%; color: transparent; background: #071b32 url('https://www.solarsystemscope.com/textures/download/2k_earth_daymap.jpg') center / cover no-repeat; overflow: hidden; }
+.mass-brand-orb { display: grid; place-items: center; width: 27px; height: 27px; border: 1px solid rgba(156,188,255,.4); border-radius: 50%; color: transparent; background: #071b32 url('../earth-icon.svg') center / cover no-repeat; overflow: hidden; }
 .mass-header-tag { justify-self: end; color: #778bb4; font-size: 9px; font-weight: 800; letter-spacing: .17em; }
 .mass-space-main { position: relative; z-index: 1; width: min(960px, calc(100% - 36px)); margin: 0 auto; padding: 46px 0 36px; }
 .mass-eyebrow { margin: 0 0 12px; color: #91b4ff; font-size: 10px; font-weight: 800; letter-spacing: .22em; }
