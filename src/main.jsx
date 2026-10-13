@@ -5,6 +5,7 @@ import Globe from 'react-globe.gl';
 import * as topojson from 'topojson-client';
 import { EVENTS, GEOLOGIC_FACTS, PLATE_BOUNDARIES, PLATES, PERIODS } from './data';
 import PlateTectonicsLab from './PlateTectonicsLab';
+import EarthSandboxSimulator from './EarthSandboxSimulator';
 import './styles.css';
 
 const WORLD_URL = 'https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json';
@@ -147,6 +148,7 @@ const SYSTEM_CATALOG = {
   'mass-space': { name: 'Mass in Space', description: 'Compare weight across the Solar System.', status: 'open' },
   phivolcs: { name: 'Global Seismic & Volcanic Monitor', description: 'Global earthquake and volcano monitoring.', status: 'open' },
   'plate-lab': { name: 'Plate Tectonics Laboratory', description: 'Interactive tectonics experiments.', status: 'close' },
+  'earth-sandbox': { name: 'Earth Sandbox Simulator', description: 'Build and experiment with adjustable Earth systems.', status: 'open' },
 };
 const SYSTEM_CONTROL_IDS = Object.keys(SYSTEM_CATALOG);
 const DIRECT_SYSTEM_LINKS = {
@@ -154,6 +156,7 @@ const DIRECT_SYSTEM_LINKS = {
   massspace: 'mass-space',
   phivolcs: 'phivolcs',
   platelab: 'plate-lab',
+  earthsandbox: 'earth-sandbox',
 };
 function getInitialSystemFromUrl() {
   if (typeof window === 'undefined') return 'landing';
@@ -2703,6 +2706,17 @@ function App() {
   ) : null;
 
 
+
+  if (systemSelected === 'earth-sandbox') {
+    return (
+      <EarthSandboxSimulator
+        onHome={() => setSystemSelected('landing')}
+        onOpenTerminal={() => openSystemTerminal('earth-sandbox')}
+        terminal={renderTerminal()}
+      />
+    );
+  }
+
   if (systemSelected === 'plate-lab') {
     return (
       <PlateTectonicsLab
@@ -3487,14 +3501,14 @@ function App() {
               </span>
               <span className="system-choice-arrow" aria-hidden="true">↗</span>
             </button>
-            <button className="system-choice system-choice-coming-soon" type="button" disabled aria-disabled="true" title="Earth Sandbox Simulator is coming soon">
+            <button className={'system-choice system-choice-primary' + (!systemAvailability['earth-sandbox'] ? ' system-choice-closed' : '')} type="button" onClick={() => openSystem('earth-sandbox')} onContextMenu={(event) => { event.preventDefault(); openSystemTerminal('earth-sandbox'); }} title={!systemAvailability['earth-sandbox'] ? 'Not currently available' : ''}>
               <span className="system-choice-icon" aria-hidden="true">◇</span>
               <span className="system-choice-copy">
                 <strong>Earth Sandbox Simulator</strong>
-                <span>Build and experiment with your own Earth systems.</span>
-                <small className="system-choice-badge coming-soon">COMING SOON</small>
+                <span>Build your own Earth and experiment with gravity, air resistance, motion and impacts.</span>
+                {!systemAvailability['earth-sandbox'] && <small className="system-choice-badge unavailable">NOT CURRENTLY AVAILABLE</small>}
               </span>
-              <span className="system-choice-arrow" aria-hidden="true">⌛</span>
+              <span className="system-choice-arrow" aria-hidden="true">↗</span>
             </button>
           </div>
           <p className="system-landing-note">More Earth systems will be added here over time.</p>
