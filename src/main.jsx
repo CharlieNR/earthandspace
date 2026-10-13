@@ -145,32 +145,29 @@ const SYSTEM_CATALOG = {
   phivolcs: { name: 'Global Seismic & Volcanic Monitor', description: 'Global earthquake and volcano monitoring.' },
   'plate-lab': { name: 'Plate Tectonics Laboratory', description: 'Interactive tectonics experiments.' },
 };
-const SYSTEM_AVAILABILITY_STORAGE_KEY = 'earthsystems_system_availability_v1';
-const TERMINAL_PASSWORD_SALT = 'ErcifOvwlJOow+aHO6EHmA==';
-const TERMINAL_PASSWORD_DERIVED_KEY = 'HoxNfNXgra704plVssZfTLnTNlwoBK6A1LYvgtGry2E=';
-const TERMINAL_PASSWORD_ITERATIONS = 310000;
+const SYSTEMS_API_BASE_URL = String(import.meta.env.VITE_SYSTEMS_API_URL || '').replace(/\\/+$/u, '');
+const SYSTEM_CONTROL_IDS = Object.keys(SYSTEM_CATALOG);
 
-// The password itself is never stored in this client bundle. This PBKDF2 verifier
-// is suitable for a toy/restricted console, not for protecting a real server.
-async function verifyTerminalPassword(candidate) {
-  if (!window.crypto?.subtle) throw new Error('Secure password verification is unavailable in this browser.');
-  const encoder = new TextEncoder();
-  const key = await window.crypto.subtle.importKey('raw', encoder.encode(candidate), 'PBKDF2', false, ['deriveBits']);
-  const salt = Uint8Array.from(atob(TERMINAL_PASSWORD_SALT), (character) => character.charCodeAt(0));
-  const bits = await window.crypto.subtle.deriveBits({
-    name: 'PBKDF2',
-    salt,
-    iterations: TERMINAL_PASSWORD_ITERATIONS,
-    hash: 'SHA-256',
-  }, key, 256);
-  const bytes = new Uint8Array(bits);
-  const encoded = btoa(Array.from(bytes, (byte) => String.fromCharCode(byte)).join(''));
-  if (encoded.length !== TERMINAL_PASSWORD_DERIVED_KEY.length) return false;
-  let difference = 0;
-  for (let index = 0; index < encoded.length; index += 1) {
-    difference |= encoded.charCodeAt(index) ^ TERMINAL_PASSWORD_DERIVED_KEY.charCodeAt(index);
+async function requestSystemsApi(path, options = {}) {
+  if (!SYSTEMS_API_BASE_URL) {
+    throw new Error('Global control API is not configured yet. Deploy control-api and set the VITE_SYSTEMS_API_URL repository variable.');
   }
-  return difference === 0;
+  let response;
+  try {
+    response = await fetch(SYSTEMS_API_BASE_URL + path, {
+      cache: 'no-store',
+      ...options,
+      headers: {
+        ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+        ...(options.headers || {}),
+      },
+    });
+  } catch {
+    throw new Error('Could not reach the global control service. Check the Cloudflare Worker deployment.');
+  }
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload.error || ('Global control API returned HTTP ' + response.status + '.'));
+  return payload;
 }
 
 function equirectangularPoint(longitude, latitude) {
@@ -1246,15 +1243,13 @@ function App() {
   const requestRef = useRef(0);
   const [systemSelected, setSystemSelected] = useState('landing');
   const [labInitialBoundaryName, setLabInitialBoundaryName] = useState(null);
-  const [systemAvailability, setSystemAvailability] = useState(() => {
-    const defaults = Object.fromEntries(Object.keys(SYSTEM_CATALOG).map((id) => [id, true]));
-    try {
-      const saved = JSON.parse(window.localStorage.getItem(SYSTEM_AVAILABILITY_STORAGE_KEY) || '{}');
-      return Object.fromEntries(Object.keys(SYSTEM_CATALOG).map((id) => [id, saved[id] !== false]));
-    } catch {
-      return defaults;
-    }
-  });
+  const [systemAvailability, setSystemAvailability] = useState(() =>
+    Object.fromEntries(SYSTEM_CONTROL_IDS.map((id) => [id, !SYSTEMS_API_BASE_URL]))
+  );
+  const [systemAvailabilityLoaded, setSystemAvailabilityLoaded] = useState(false);
+  const [systemAvailabilityError, setSystemAvailabilityError] = useState(() =>
+    SYSTEMS_API_BASE_URL ? '' : 'Global controls are not connected yet. Deploy the server-side control API and configure VITE_SYSTEMS_API_URL to enable shared status and terminal administration.'
+  );
   const [systemAvailabilityNotice, setSystemAvailabilityNotice] = useState('');
   const [quakeLayer, setQuakeLayer] = useState('earthquakes');
   const [quakeMapView, setQuakeMapView] = useState({ zoom: 1, panX: 0, panY: 0 });
@@ -1325,6 +1320,7 @@ function App() {
   const [terminalOpen, setTerminalOpen] = useState(false);
   const [terminalTargetSystem, setTerminalTargetSystem] = useState('past-globe');
   const [terminalUnlocked, setTerminalUnlocked] = useState(false);
+  const [terminalSessionToken, setTerminalSessionToken] = useState(null);
   const [terminalPasswordInput, setTerminalPasswordInput] = useState('');
   const [terminalPasswordError, setTerminalPasswordError] = useState('');
   const [terminalAuthenticating, setTerminalAuthenticating] = useState(false);
@@ -1344,12 +1340,33 @@ function App() {
   );
 
   useEffect(() => {
-    try {
-      window.localStorage.setItem(SYSTEM_AVAILABILITY_STORAGE_KEY, JSON.stringify(systemAvailability));
-    } catch {
-      // Availability remains functional for this session when storage is blocked.
-    }
-  }, [systemAvailability]);
+    if (!SYSTEMS_API_BASE_URL) return undefined;
+    let cancelled = false;
+    const refreshGlobalAvailability = async () => {
+      try {
+        const result = await requestSystemsApi('/api/status');
+        if (!result.availability || !SYSTEM_CONTROL_IDS.every((id) => typeof result.availability[id] === 'boolean')) {
+          throw new Error('The global control service returned an invalid status payload.');
+        }
+        if (cancelled) return;
+        setSystemAvailability(result.availability);
+        setSystemAvailabilityLoaded(true);
+        setSystemAvailabilityError('');
+      } catch (error) {
+        if (cancelled) return;
+        setSystemAvailabilityLoaded(false);
+        setSystemAvailabilityError(error?.message || 'The global control service is unavailable.');
+        setSystemAvailability(Object.fromEntries(SYSTEM_CONTROL_IDS.map((id) => [id, false])));
+        setSystemSelected((current) => SYSTEM_CONTROL_IDS.includes(current) ? 'landing' : current);
+      }
+    };
+    refreshGlobalAvailability();
+    const interval = window.setInterval(refreshGlobalAvailability, 15000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, []);
 
   useEffect(() => {
     setDiagnosticSink((line) => {
@@ -2403,6 +2420,7 @@ function App() {
     setTerminalTargetSystem(target);
     setTerminalOpen(true);
     setTerminalUnlocked(false);
+    setTerminalSessionToken(null);
     setTerminalPasswordInput('');
     setTerminalPasswordError('');
     setTerminalAuthenticating(false);
@@ -2418,6 +2436,10 @@ function App() {
 
   const openSystem = (systemId) => {
     const target = SYSTEM_CATALOG[systemId] ? systemId : 'past-globe';
+    if (SYSTEMS_API_BASE_URL && !systemAvailabilityLoaded) {
+      setSystemAvailabilityNotice('The global control service has not confirmed system availability yet. Try again when its status is online.');
+      return;
+    }
     if (!systemAvailability[target]) {
       setSystemAvailabilityNotice(SYSTEM_CATALOG[target].name + ' is NOT CURRENTLY AVAILABLE. Right-click its tile to open the terminal.');
       return;
@@ -2433,18 +2455,18 @@ function App() {
     setTerminalAuthenticating(true);
     setTerminalPasswordError('');
     try {
-      const accepted = await verifyTerminalPassword(terminalPasswordInput);
-      if (!accepted) {
-        setTerminalPasswordError('ACCESS DENIED — incorrect password.');
-        setTerminalPasswordInput('');
-        return;
-      }
+      const result = await requestSystemsApi('/api/admin/login', {
+        method: 'POST',
+        body: JSON.stringify({ password: terminalPasswordInput }),
+      });
+      if (!result.token) throw new Error('The control service did not issue an admin session.');
+      setTerminalSessionToken(result.token);
       setTerminalUnlocked(true);
       setTerminalPasswordInput('');
       setTerminalLines((previous) => [
         ...previous,
-        { kind: 'success', text: 'Authentication accepted.' },
-        { kind: 'system', text: 'Restricted command interpreter ready. Type help for supported commands.' },
+        { kind: 'success', text: 'Server authentication accepted.' },
+        { kind: 'system', text: 'Restricted command interpreter ready. Session expires in 15 minutes. Type help for supported commands.' },
       ]);
     } catch (error) {
       setTerminalPasswordError(error?.message || 'Password verification failed.');
@@ -2471,7 +2493,7 @@ function App() {
     return entry?.[0] || null;
   };
 
-  const submitTerminalCommand = (event) => {
+  const submitTerminalCommand = async (event) => {
     event.preventDefault();
     if (!terminalUnlocked) return;
     const command = terminalCommandInput.trim();
@@ -2489,13 +2511,13 @@ function App() {
         '  whoami               Show the console user',
         '  clear                Clear console output',
         '  exit                 Close the terminal',
-        '  sudo close           Mark the terminal target as unavailable',
-        '  sudo open            Mark the terminal target as available',
-        '  sudo close <system>  Close a named system',
-        '  sudo open <system>   Open a named system',
+        '  sudo close           Mark the terminal target unavailable for everyone',
+        '  sudo open            Mark the terminal target available for everyone',
+        '  sudo close <system>  Close a named system globally',
+        '  sudo open <system>   Open a named system globally',
         '',
         'System aliases: past-globe, mass-space, phivolcs, plate-lab.',
-        'Only these simulated commands are supported. No arbitrary shell commands run.',
+        'Commands are validated by the server; no arbitrary shell commands run.',
       ].join('\n'));
       return;
     }
@@ -2522,6 +2544,7 @@ function App() {
     if (lower === 'exit' || lower === 'logout') {
       setTerminalOpen(false);
       setTerminalUnlocked(false);
+      setTerminalSessionToken(null);
       return;
     }
 
@@ -2535,18 +2558,30 @@ function App() {
       }
       const systemName = SYSTEM_CATALOG[requestedTarget].name;
       const nextAvailability = action === 'open';
-      if (systemAvailability[requestedTarget] === nextAvailability) {
-        terminalWrite(systemName + ' is already ' + (nextAvailability ? 'AVAILABLE.' : 'NOT CURRENTLY AVAILABLE.'));
-        return;
-      }
-      setSystemAvailability((previous) => ({ ...previous, [requestedTarget]: nextAvailability }));
-      setSystemAvailabilityNotice(systemName + (nextAvailability
-        ? ' is now AVAILABLE.'
-        : ' is now NOT CURRENTLY AVAILABLE. Right-click its home-screen tile to reopen the terminal.'));
-      terminalWrite(systemName + ' → ' + (nextAvailability ? 'AVAILABLE' : 'NOT CURRENTLY AVAILABLE'), 'success');
-      if (!nextAvailability && systemSelected === requestedTarget) {
-        setSystemSelected('landing');
-        setLabInitialBoundaryName(null);
+      try {
+        const updated = await requestSystemsApi('/api/admin/system-status', {
+          method: 'POST',
+          headers: { Authorization: 'Bearer ' + (terminalSessionToken || '') },
+          body: JSON.stringify({ systemId: requestedTarget, available: nextAvailability }),
+        });
+        setSystemAvailability(updated.availability);
+        setSystemAvailabilityLoaded(true);
+        setSystemAvailabilityError('');
+        setSystemAvailabilityNotice(systemName + (nextAvailability
+          ? ' is now AVAILABLE for everyone.'
+          : ' is now NOT CURRENTLY AVAILABLE for everyone. Right-click its home-screen tile to reopen the terminal.'));
+        terminalWrite(systemName + ' → ' + (nextAvailability ? 'AVAILABLE FOR EVERYONE' : 'NOT CURRENTLY AVAILABLE FOR EVERYONE'), 'success');
+        if (!nextAvailability && systemSelected === requestedTarget) {
+          setSystemSelected('landing');
+          setLabInitialBoundaryName(null);
+        }
+      } catch (error) {
+        terminalWrite('GLOBAL UPDATE FAILED: ' + (error?.message || String(error)), 'error');
+        if (/session expired|invalid|unauthori[sz]ed/iu.test(error?.message || '')) {
+          setTerminalUnlocked(false);
+          setTerminalSessionToken(null);
+          setTerminalPasswordError('Admin session expired. Authenticate again.');
+        }
       }
       return;
     }
@@ -2573,6 +2608,7 @@ function App() {
         if (event.target === event.currentTarget) {
           setTerminalOpen(false);
           setTerminalUnlocked(false);
+          setTerminalSessionToken(null);
         }
       }}
     >
@@ -2595,6 +2631,7 @@ function App() {
           <button className="terminal-close" type="button" onClick={() => {
             setTerminalOpen(false);
             setTerminalUnlocked(false);
+            setTerminalSessionToken(null);
           }} aria-label="Close terminal">×</button>
         </div>
 
@@ -3440,6 +3477,7 @@ function App() {
           <p className="system-eyebrow">A window into our planet</p>
           <h1>Where Was<br /><span>the Earth?</span></h1>
           <p className="system-intro">Choose a system to continue. Right-click any system tile to open its password-protected terminal.</p>
+          {systemAvailabilityError && <p className="system-availability-notice system-availability-warning" role="status">{systemAvailabilityError}</p>}
           {systemAvailabilityNotice && <p className="system-availability-notice" role="status">{systemAvailabilityNotice}</p>}
           <div className="system-choice-grid">
             <button className={'system-choice system-choice-primary' + (!systemAvailability['past-globe'] ? ' system-choice-closed' : '')} type="button" onClick={() => openSystem('past-globe')} onContextMenu={(event) => { event.preventDefault(); openSystemTerminal('past-globe'); }} title={!systemAvailability['past-globe'] ? 'Not currently available · Right-click to open terminal' : 'Right-click to open terminal'}>
