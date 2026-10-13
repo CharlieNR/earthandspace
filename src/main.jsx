@@ -303,14 +303,14 @@ const PRELOAD_FAILURE_PAUSE_MS = 12000;
 
 
 const SOLAR_SYSTEM_PLANETS = [
-  { name: 'Mercury', gravity: 0.378, diameter: 120, texture: 'https://www.solarsystemscope.com/textures/download/2k_mercury.jpg', fact: 'The smallest planet, with a heavily cratered rocky surface.' },
-  { name: 'Venus', gravity: 0.907, diameter: 145, texture: 'https://www.solarsystemscope.com/textures/download/2k_venus_surface.jpg', fact: 'A rocky world hidden beneath thick, hot clouds.' },
-  { name: 'Earth', gravity: 1, diameter: 160, texture: 'https://www.solarsystemscope.com/textures/download/2k_earth_daymap.jpg', fact: 'Our home world; the reference for your input mass.' },
-  { name: 'Mars', gravity: 0.377, diameter: 135, texture: 'https://www.solarsystemscope.com/textures/download/2k_mars.jpg', fact: 'A cold desert world with enormous volcanoes and canyons.' },
-  { name: 'Jupiter', gravity: 2.36, diameter: 220, texture: 'https://www.solarsystemscope.com/textures/download/2k_jupiter.jpg', fact: 'The largest planet, with powerful gravity and swirling cloud bands.' },
-  { name: 'Saturn', gravity: 0.916, diameter: 205, texture: 'https://www.solarsystemscope.com/textures/download/2k_saturn.jpg', fact: 'A gas giant surrounded by a spectacular ring system.' },
-  { name: 'Uranus', gravity: 0.889, diameter: 180, texture: 'https://www.solarsystemscope.com/textures/download/2k_uranus.jpg', fact: 'An ice giant that rotates on a dramatic tilt.' },
-  { name: 'Neptune', gravity: 1.12, diameter: 178, texture: 'https://www.solarsystemscope.com/textures/download/2k_neptune.jpg', fact: 'A distant, cold ice giant with very fast winds.' },
+  { name: 'Mercury', gravity: 3.70, diameter: 120, texture: 'https://www.solarsystemscope.com/textures/download/2k_mercury.jpg', fact: 'The smallest planet, with a heavily cratered rocky surface.' },
+  { name: 'Venus', gravity: 8.87, diameter: 145, texture: 'https://www.solarsystemscope.com/textures/download/2k_venus_surface.jpg', fact: 'A rocky world hidden beneath thick, hot clouds.' },
+  { name: 'Earth', gravity: 9.80, diameter: 160, texture: 'https://www.solarsystemscope.com/textures/download/2k_earth_daymap.jpg', fact: 'Our home world; the reference for your input mass.' },
+  { name: 'Mars', gravity: 3.71, diameter: 135, texture: 'https://www.solarsystemscope.com/textures/download/2k_mars.jpg', fact: 'A cold desert world with enormous volcanoes and canyons.' },
+  { name: 'Jupiter', gravity: 24.79, diameter: 220, texture: 'https://www.solarsystemscope.com/textures/download/2k_jupiter.jpg', fact: 'The largest planet, with powerful gravity and swirling cloud bands.' },
+  { name: 'Saturn', gravity: 10.44, diameter: 205, texture: 'https://www.solarsystemscope.com/textures/download/2k_saturn.jpg', fact: 'A gas giant surrounded by a spectacular ring system.' },
+  { name: 'Uranus', gravity: 8.87, diameter: 180, texture: 'https://www.solarsystemscope.com/textures/download/2k_uranus.jpg', fact: 'An ice giant that rotates on a dramatic tilt.' },
+  { name: 'Neptune', gravity: 11.15, diameter: 178, texture: 'https://www.solarsystemscope.com/textures/download/2k_neptune.jpg', fact: 'A distant, cold ice giant with very fast winds.' },
 ];
 
 const MAX_DIAGNOSTIC_LINES = 2500;
@@ -3282,7 +3282,7 @@ function App() {
     const selectedSlide = massSlides[massPlanetIndex];
     const massValue = Number(earthMass);
     const displayMass = Number.isFinite(massValue) && massValue >= 0 ? massValue : 0;
-    const apparentWeight = selectedSlide.overview ? null : displayMass * selectedSlide.gravity * 9.81;
+    const apparentWeight = selectedSlide.overview ? null : displayMass * selectedSlide.gravity;
     const trackStep = 100 / massSlides.length;
     return (
       <main className="mass-space">
@@ -3341,7 +3341,7 @@ function App() {
                         <p className="mass-planet-fact">{item.fact}</p>
                         <div className="mass-overview-weights">
                           {SOLAR_SYSTEM_PLANETS.map((planetItem) => (
-                            <div key={planetItem.name}><span>{planetItem.name}</span><strong>{(displayMass * planetItem.gravity * 9.81).toLocaleString(undefined, { maximumFractionDigits: 2 })} <small>N</small></strong></div>
+                            <div key={planetItem.name}><span>{planetItem.name}</span><strong>{(displayMass * planetItem.gravity).toLocaleString(undefined, { maximumFractionDigits: 2 })} <small>N</small></strong></div>
                           ))}
                         </div>
                       </div>
@@ -3354,7 +3354,7 @@ function App() {
                       </div>
                       <div className="mass-planet-title">{item.name}</div>
                       <div className="mass-planet-fact">{item.fact}</div>
-                      <div className="mass-slide-weight"><span>YOUR WEIGHT ON {item.name.toUpperCase()}</span><strong>{(displayMass * item.gravity * 9.81).toLocaleString(undefined, { maximumFractionDigits: 2 })} <small>N</small></strong></div>
+                      <div className="mass-slide-weight"><span>YOUR WEIGHT ON {item.name.toUpperCase()}</span><strong>{(displayMass * item.gravity).toLocaleString(undefined, { maximumFractionDigits: 2 })} <small>N</small></strong></div>
                       </>
                     )}
                   </div>
@@ -3376,7 +3376,7 @@ function App() {
             <div className="mass-result-divider" />
             <div><span>GRAVITY VS EARTH</span><strong>{selectedSlide.gravity.toFixed(3)}×</strong></div>
           </div>}
-          <p className="mass-science-note"><strong>Science note:</strong> your mass stays the same wherever you go. Weight is calculated using W = m × g, where mass is in kilograms and gravitational field strength is in m/s². The listed planetary gravities are approximate multiples of Earth's 9.81 m/s², so results are shown in newtons (N). Gas and ice giants have no solid surface, so their figures use conventional reference levels.</p>
+          <p className="mass-science-note"><strong>Science note:</strong> your mass stays the same wherever you go. Weight is calculated using W = m × g, where mass is in kilograms and gravitational field strength is in m/s². The gravitational field strengths use NASA/JPL equatorial values in m/s². For Jupiter, Saturn, Uranus and Neptune, the values are defined at conventional atmospheric reference levels because these planets have no solid surface. Weight is calculated directly as W = m × g and displayed in newtons (N).</p>
           <div className="mass-keyboard-hint"><kbd>←</kbd><kbd>→</kbd> Slide through the planets, then the solar-system overview</div>
         </section>
         {renderTerminal()}
