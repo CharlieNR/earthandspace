@@ -139,36 +139,19 @@ const SMITHSONIAN_VOLCANO_WFS_URL = 'https://webservices.volcano.si.edu/geoserve
 const USGS_VOLCANO_ALERTS_URL = 'https://volcanoes.usgs.gov/hans-public/api/volcano/getElevatedVolcanoes';
 const VOLCANO_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 
+// EDIT THESE VALUES TO CONTROL WHICH HOMEPAGE SYSTEMS ARE AVAILABLE.
+// Use status: 'open' or status: 'close'. Changes take effect when the site rebuilds/deploys.
+// This is intentionally code-defined: there is no remote control API or Cloudflare dependency.
 const SYSTEM_CATALOG = {
-  'past-globe': { name: 'Past Globe', description: 'Explore Earth through geological time.' },
-  'mass-space': { name: 'Mass in Space', description: 'Compare weight across the Solar System.' },
-  phivolcs: { name: 'Global Seismic & Volcanic Monitor', description: 'Global earthquake and volcano monitoring.' },
-  'plate-lab': { name: 'Plate Tectonics Laboratory', description: 'Interactive tectonics experiments.' },
+  'past-globe': { name: 'Past Globe', description: 'Explore Earth through geological time.', status: 'open' },
+  'mass-space': { name: 'Mass in Space', description: 'Compare weight across the Solar System.', status: 'open' },
+  phivolcs: { name: 'Global Seismic & Volcanic Monitor', description: 'Global earthquake and volcano monitoring.', status: 'open' },
+  'plate-lab': { name: 'Plate Tectonics Laboratory', description: 'Interactive tectonics experiments.', status: 'open' },
 };
-const SYSTEMS_API_BASE_URL = String(import.meta.env.VITE_SYSTEMS_API_URL || '').replace(/\/+$/u, '');
 const SYSTEM_CONTROL_IDS = Object.keys(SYSTEM_CATALOG);
-
-async function requestSystemsApi(path, options = {}) {
-  if (!SYSTEMS_API_BASE_URL) {
-    throw new Error('Global control API is not configured yet. Deploy control-api and set the VITE_SYSTEMS_API_URL repository variable.');
-  }
-  let response;
-  try {
-    response = await fetch(SYSTEMS_API_BASE_URL + path, {
-      cache: 'no-store',
-      ...options,
-      headers: {
-        ...(options.body ? { 'Content-Type': 'application/json' } : {}),
-        ...(options.headers || {}),
-      },
-    });
-  } catch {
-    throw new Error('Could not reach the global control service. Check the Cloudflare Worker deployment.');
-  }
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(payload.error || ('Global control API returned HTTP ' + response.status + '.'));
-  return payload;
-}
+const INITIAL_SYSTEM_AVAILABILITY = Object.fromEntries(
+  SYSTEM_CONTROL_IDS.map((id) => [id, SYSTEM_CATALOG[id].status !== 'close'])
+);
 
 function equirectangularPoint(longitude, latitude) {
   return {
@@ -1243,13 +1226,9 @@ function App() {
   const requestRef = useRef(0);
   const [systemSelected, setSystemSelected] = useState('landing');
   const [labInitialBoundaryName, setLabInitialBoundaryName] = useState(null);
-  const [systemAvailability, setSystemAvailability] = useState(() =>
-    Object.fromEntries(SYSTEM_CONTROL_IDS.map((id) => [id, !SYSTEMS_API_BASE_URL]))
-  );
-  const [systemAvailabilityLoaded, setSystemAvailabilityLoaded] = useState(false);
-  const [systemAvailabilityError, setSystemAvailabilityError] = useState(() =>
-    SYSTEMS_API_BASE_URL ? '' : 'Global controls are not connected yet. Deploy the server-side control API and configure VITE_SYSTEMS_API_URL to enable shared status and terminal administration.'
-  );
+  const [systemAvailability, setSystemAvailability] = useState(INITIAL_SYSTEM_AVAILABILITY);
+  const [systemAvailabilityLoaded] = useState(true);
+  const [systemAvailabilityError] = useState('');
   const [systemAvailabilityNotice, setSystemAvailabilityNotice] = useState('');
   const [quakeLayer, setQuakeLayer] = useState('earthquakes');
   const [quakeMapView, setQuakeMapView] = useState({ zoom: 1, panX: 0, panY: 0 });
@@ -1338,35 +1317,6 @@ function App() {
   const [reducedMotion, setReducedMotion] = useState(
     window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
   );
-
-  useEffect(() => {
-    if (!SYSTEMS_API_BASE_URL) return undefined;
-    let cancelled = false;
-    const refreshGlobalAvailability = async () => {
-      try {
-        const result = await requestSystemsApi('/api/status');
-        if (!result.availability || !SYSTEM_CONTROL_IDS.every((id) => typeof result.availability[id] === 'boolean')) {
-          throw new Error('The global control service returned an invalid status payload.');
-        }
-        if (cancelled) return;
-        setSystemAvailability(result.availability);
-        setSystemAvailabilityLoaded(true);
-        setSystemAvailabilityError('');
-      } catch (error) {
-        if (cancelled) return;
-        setSystemAvailabilityLoaded(false);
-        setSystemAvailabilityError(error?.message || 'The global control service is unavailable.');
-        setSystemAvailability(Object.fromEntries(SYSTEM_CONTROL_IDS.map((id) => [id, false])));
-        setSystemSelected((current) => SYSTEM_CONTROL_IDS.includes(current) ? 'landing' : current);
-      }
-    };
-    refreshGlobalAvailability();
-    const interval = window.setInterval(refreshGlobalAvailability, 15000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(interval);
-    };
-  }, []);
 
   useEffect(() => {
     if (!systemAvailabilityLoaded) return;
@@ -2428,7 +2378,7 @@ function App() {
     const target = SYSTEM_CATALOG[systemId] ? systemId : 'past-globe';
     setTerminalTargetSystem(target);
     setTerminalOpen(true);
-    setTerminalUnlocked(false);
+    setTerminalUnlocked(true);
     setTerminalSessionToken(null);
     setTerminalPasswordInput('');
     setTerminalPasswordError('');
@@ -2445,10 +2395,6 @@ function App() {
 
   const openSystem = (systemId) => {
     const target = SYSTEM_CATALOG[systemId] ? systemId : 'past-globe';
-    if (SYSTEMS_API_BASE_URL && !systemAvailabilityLoaded) {
-      setSystemAvailabilityNotice('The global control service has not confirmed system availability yet. Try again when its status is online.');
-      return;
-    }
     if (!systemAvailability[target]) {
       setSystemAvailabilityNotice(SYSTEM_CATALOG[target].name + ' is NOT CURRENTLY AVAILABLE. Right-click its tile to open the terminal.');
       return;
@@ -2458,30 +2404,9 @@ function App() {
     if (target === 'plate-lab') setLabInitialBoundaryName(null);
   };
 
-  const submitTerminalPassword = async (event) => {
+  const submitTerminalPassword = (event) => {
     event.preventDefault();
-    if (terminalAuthenticating) return;
-    setTerminalAuthenticating(true);
-    setTerminalPasswordError('');
-    try {
-      const result = await requestSystemsApi('/api/admin/login', {
-        method: 'POST',
-        body: JSON.stringify({ password: terminalPasswordInput }),
-      });
-      if (!result.token) throw new Error('The control service did not issue an admin session.');
-      setTerminalSessionToken(result.token);
-      setTerminalUnlocked(true);
-      setTerminalPasswordInput('');
-      setTerminalLines((previous) => [
-        ...previous,
-        { kind: 'success', text: 'Server authentication accepted.' },
-        { kind: 'system', text: 'Restricted command interpreter ready. Session expires in 15 minutes. Type help for supported commands.' },
-      ]);
-    } catch (error) {
-      setTerminalPasswordError(error?.message || 'Password verification failed.');
-    } finally {
-      setTerminalAuthenticating(false);
-    }
+    terminalWrite('This terminal is a local diagnostic console. System availability is configured in SYSTEM_CATALOG in src/main.jsx.', 'system');
   };
 
   const terminalWrite = (text, kind = 'output') => {
@@ -2520,13 +2445,13 @@ function App() {
         '  whoami               Show the console user',
         '  clear                Clear console output',
         '  exit                 Close the terminal',
-        '  sudo close           Mark the terminal target unavailable for everyone',
-        '  sudo open            Mark the terminal target available for everyone',
-        '  sudo close <system>  Close a named system globally',
-        '  sudo open <system>   Open a named system globally',
+        '  sudo close           Show how to close the target in source code',
+        '  sudo open            Show how to open the target in source code',
+        '  sudo close <system>  Show source-code change for a named system',
+        '  sudo open <system>   Show source-code change for a named system',
         '',
         'System aliases: past-globe, mass-space, phivolcs, plate-lab.',
-        'Commands are validated by the server; no arbitrary shell commands run.',
+        'No server or remote control API is used. Edit SYSTEM_CATALOG in src/main.jsx to change availability.',
       ].join('\n'));
       return;
     }
@@ -2566,32 +2491,11 @@ function App() {
         return;
       }
       const systemName = SYSTEM_CATALOG[requestedTarget].name;
-      const nextAvailability = action === 'open';
-      try {
-        const updated = await requestSystemsApi('/api/admin/system-status', {
-          method: 'POST',
-          headers: { Authorization: 'Bearer ' + (terminalSessionToken || '') },
-          body: JSON.stringify({ systemId: requestedTarget, available: nextAvailability }),
-        });
-        setSystemAvailability(updated.availability);
-        setSystemAvailabilityLoaded(true);
-        setSystemAvailabilityError('');
-        setSystemAvailabilityNotice(systemName + (nextAvailability
-          ? ' is now AVAILABLE for everyone.'
-          : ' is now NOT CURRENTLY AVAILABLE for everyone. Right-click its home-screen tile to reopen the terminal.'));
-        terminalWrite(systemName + ' → ' + (nextAvailability ? 'AVAILABLE FOR EVERYONE' : 'NOT CURRENTLY AVAILABLE FOR EVERYONE'), 'success');
-        if (!nextAvailability && systemSelected === requestedTarget) {
-          setSystemSelected('landing');
-          setLabInitialBoundaryName(null);
-        }
-      } catch (error) {
-        terminalWrite('GLOBAL UPDATE FAILED: ' + (error?.message || String(error)), 'error');
-        if (/session expired|invalid|unauthori[sz]ed/iu.test(error?.message || '')) {
-          setTerminalUnlocked(false);
-          setTerminalSessionToken(null);
-          setTerminalPasswordError('Admin session expired. Authenticate again.');
-        }
-      }
+      terminalWrite(
+        'Code-defined status: ' + systemName + ' is ' + (systemAvailability[requestedTarget] ? 'OPEN' : 'CLOSED') + '.',
+        'system'
+      );
+      terminalWrite("To change it for everyone, edit SYSTEM_CATALOG in src/main.jsx: set status to '" + (action === 'open' ? 'open' : 'close') + "' and redeploy the site. Terminal commands do not modify source code.", 'output');
       return;
     }
     if (lower.startsWith('sudo ')) {
@@ -2668,7 +2572,7 @@ function App() {
                 {terminalAuthenticating ? 'VERIFYING…' : 'AUTHENTICATE'}
               </button>
             </form>
-            <p className="terminal-auth-foot">Server-side admin secret · Rate-limited login · 15-minute signed session</p>
+            <p className="terminal-auth-foot">Local diagnostic console · Availability is set in source code</p>
           </div>
         ) : (
           <div className="terminal-session">
@@ -3485,7 +3389,7 @@ function App() {
         <section className="system-landing-content">
           <p className="system-eyebrow">A window into our planet</p>
           <h1>Where Was<br /><span>the Earth?</span></h1>
-          <p className="system-intro">Choose a system to continue. Right-click any system tile to open its password-protected terminal.</p>
+          <p className="system-intro">Choose a system to continue. Right-click any system tile to open its diagnostic terminal.</p>
           {systemAvailabilityError && <p className="system-availability-notice system-availability-warning" role="status">{systemAvailabilityError}</p>}
           {systemAvailabilityNotice && <p className="system-availability-notice" role="status">{systemAvailabilityNotice}</p>}
           <div className="system-choice-grid">
