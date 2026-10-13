@@ -27,6 +27,8 @@ jobs:
       - name: Install dependencies
         run: npm install
       - name: Build
+        env:
+          VITE_SYSTEMS_API_URL: ${{ vars.VITE_SYSTEMS_API_URL }}
         run: npm run build
       - name: Upload site
         uses: actions/upload-pages-artifact@v4
