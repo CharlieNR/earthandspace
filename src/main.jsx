@@ -146,7 +146,7 @@ const SYSTEM_CATALOG = {
   'past-globe': { name: 'Past Globe', description: 'Explore Earth through geological time.', status: 'open' },
   'mass-space': { name: 'Mass in Space', description: 'Compare weight across the Solar System.', status: 'open' },
   phivolcs: { name: 'Global Seismic & Volcanic Monitor', description: 'Global earthquake and volcano monitoring.', status: 'open' },
-  'plate-lab': { name: 'Plate Tectonics Laboratory', description: 'Interactive tectonics experiments.', status: 'open' },
+  'plate-lab': { name: 'Plate Tectonics Laboratory', description: 'Interactive tectonics experiments.', status: 'close' },
 };
 const SYSTEM_CONTROL_IDS = Object.keys(SYSTEM_CATALOG);
 const INITIAL_SYSTEM_AVAILABILITY = Object.fromEntries(
