@@ -2396,7 +2396,7 @@ function App() {
   const openSystem = (systemId) => {
     const target = SYSTEM_CATALOG[systemId] ? systemId : 'past-globe';
     if (!systemAvailability[target]) {
-      setSystemAvailabilityNotice(SYSTEM_CATALOG[target].name + ' is NOT CURRENTLY AVAILABLE. Right-click its tile to open the terminal.');
+      setSystemAvailabilityNotice(SYSTEM_CATALOG[target].name + ' is NOT CURRENTLY AVAILABLE.');
       return;
     }
     setSystemAvailabilityNotice('');
@@ -3271,7 +3271,7 @@ function App() {
         </div>
         <footer className="phivolcs-footer">
           <span>GLOBAL GEOHAZARDS <span className="footer-separator">/</span> SEISMIC &amp; VOLCANIC MONITOR</span>
-          <span>Click the Earth to return home · Right-click it to open diagnostics</span>
+          <span>Click the Earth to return home</span>
         </footer>
       </main>
     );
@@ -3543,7 +3543,7 @@ function App() {
             onPathClick={(path) => {
               if (path?.kind !== 'plate') return;
               if (!systemAvailability['plate-lab']) {
-                setSystemAvailabilityNotice('Plate Tectonics Laboratory is NOT CURRENTLY AVAILABLE. Right-click its home-screen tile to open the terminal.');
+                setSystemAvailabilityNotice('Plate Tectonics Laboratory is NOT CURRENTLY AVAILABLE.');
                 setSystemSelected('landing');
                 return;
               }
