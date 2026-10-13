@@ -50,14 +50,77 @@ function earthquakeMagnitudeRadius(magnitude) {
   return Math.max(0.12, Math.min(0.82, 0.14 + Math.max(0, value) * 0.075));
 }
 
-function isPhilippinesRegionEvent(event) {
+// Broad geographic region footprints for classifying earthquake epicentres.
+// These are practical map-filter regions, not official political or tectonic boundaries.
+const EARTHQUAKE_REGION_POLYGONS = {
+  'north-america': [
+    [[-168, 50], [-150, 60], [-130, 70], [-110, 82], [-75, 83], [-52, 58], [-63, 8], [-90, 7], [-108, 25], [-130, 45]],
+    [[-75, 58], [-53, 58], [-18, 65], [-30, 80], [-52, 84], [-70, 72]],
+    [[-180, 50], [-155, 50], [-153, 65], [-180, 72]],
+    [[160, 50], [180, 48], [180, 65], [170, 60]],
+  ],
+  'south-america': [
+    [[-82, 13], [-68, 12], [-50, 5], [-34, -7], [-40, -25], [-55, -55], [-70, -56], [-80, -15]],
+  ],
+  europe: [
+    [[-25, 35], [-10, 36], [5, 36], [20, 34], [31, 36], [40, 41], [52, 48], [65, 54], [58, 72], [30, 72], [0, 70], [-15, 65], [-25, 55]],
+  ],
+  africa: [
+    [[-18, 36], [10, 37], [32, 31], [43, 12], [52, -15], [34, -35], [15, -35], [-17, -5]],
+  ],
+  oceania: [
+    [[110, -10], [155, -10], [155, -45], [130, -48], [112, -30]],
+    [[130, -10], [155, -10], [155, 2], [140, 2]],
+    [[165, -33], [180, -33], [180, -48], [165, -48]],
+    [[145, -30], [180, -30], [180, 0], [145, 0]],
+    [[145, 0], [180, 0], [180, 22], [150, 22]],
+    [[-180, -30], [-130, -30], [-130, 0], [-180, 0]],
+  ],
+  asia: [
+    [[28, 36], [40, 38], [45, 45], [60, 50], [75, 50], [180, 50], [180, 82], [30, 82]],
+    [[28, 36], [45, 32], [55, 17], [68, 5], [95, -10], [130, -10], [155, 5], [180, 10], [180, 50], [75, 50], [60, 50], [45, 45]],
+  ],
+};
+
+function pointInGeographicPolygon(longitude, latitude, polygon) {
+  let inside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i, i += 1) {
+    const [xi, yi] = polygon[i];
+    const [xj, yj] = polygon[j];
+    const crossesLatitude = (yi > latitude) !== (yj > latitude);
+    if (crossesLatitude) {
+      const crossingLongitude = ((xj - xi) * (latitude - yi)) / (yj - yi) + xi;
+      if (longitude < crossingLongitude) inside = !inside;
+    }
+  }
+  return inside;
+}
+
+function earthquakeRegionForEvent(event) {
   const coordinates = event?.geometry?.coordinates;
-  if (!Array.isArray(coordinates) || coordinates.length < 2) return false;
+  if (!Array.isArray(coordinates) || coordinates.length < 2) return null;
   const longitude = Number(coordinates[0]);
   const latitude = Number(coordinates[1]);
-  // A regional viewing window, not a national boundary or hazard-zone polygon.
-  return longitude >= 116 && longitude <= 128 && latitude >= 3.5 && latitude <= 22.5;
+  if (!Number.isFinite(longitude) || !Number.isFinite(latitude)) return null;
+
+  // Test the more distinct regions before Asia, where regional borders meet.
+  const order = ['north-america', 'south-america', 'europe', 'africa', 'oceania', 'asia'];
+  return order.find((region) =>
+    EARTHQUAKE_REGION_POLYGONS[region].some((polygon) =>
+      pointInGeographicPolygon(longitude, latitude, polygon)
+    )
+  ) || null;
 }
+
+const EARTHQUAKE_REGION_LABELS = {
+  world: 'Worldwide',
+  asia: 'Asia',
+  africa: 'Africa',
+  europe: 'Europe',
+  'north-america': 'N. America',
+  'south-america': 'S. America',
+  oceania: 'Oceania',
+};
 
 function formatEarthquakeTime(timestamp) {
   if (!Number.isFinite(Number(timestamp))) return 'Time unavailable';
@@ -1292,7 +1355,7 @@ function App() {
     return quakeEvents.filter((event) => {
       const magnitude = Number(event?.properties?.mag);
       if (Number.isFinite(minimumMagnitude) && Number.isFinite(magnitude) && magnitude < minimumMagnitude) return false;
-      if (quakeRegion === 'philippines' && !isPhilippinesRegionEvent(event)) return false;
+      if (quakeRegion !== 'world' && earthquakeRegionForEvent(event) !== quakeRegion) return false;
       const text = quakeSearch.trim().toLowerCase();
       if (text && !String(event?.properties?.place || '').toLowerCase().includes(text)) return false;
       return true;
@@ -2521,7 +2584,7 @@ function App() {
                   ? (quakeRange === 'hour' ? 'PAST HOUR' : quakeRange === 'day' ? 'PAST 24 HOURS' : quakeRange === 'week' ? 'PAST 7 DAYS' : 'PAST 30 DAYS')
                   : 'GLOBAL VOLCANO CATALOGUE'}</span>
                 <span>{quakeLayer === 'earthquakes'
-                  ? (quakeRegion === 'philippines' ? 'PHILIPPINES FOCUS' : 'WORLDWIDE')
+                  ? (quakeRegion === 'world' ? 'WORLDWIDE' : (EARTHQUAKE_REGION_LABELS[quakeRegion] || 'REGION').toUpperCase() + ' REGION')
                   : 'SITES · ACTIVITY · ALERTS'}</span>
               </div>
 
@@ -2732,7 +2795,12 @@ function App() {
                       <span>Region</span>
                       <select value={quakeRegion} onChange={(event) => setQuakeRegion(event.target.value)}>
                         <option value="world">Worldwide</option>
-                        <option value="philippines">Philippines focus</option>
+                        <option value="asia">Asia</option>
+                        <option value="africa">Africa</option>
+                        <option value="europe">Europe</option>
+                        <option value="north-america">N. America</option>
+                        <option value="south-america">S. America</option>
+                        <option value="oceania">Oceania</option>
                       </select>
                     </label>
                     <label>
