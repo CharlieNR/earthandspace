@@ -2387,7 +2387,7 @@ function App() {
     setTerminalLines([
       { kind: 'system', text: '--- EARTH SYSTEMS DIAGNOSTIC CONSOLE ---' },
       { kind: 'system', text: 'Target: ' + SYSTEM_CATALOG[target].name },
-      { kind: 'system', text: 'Local console ready. Availability is configured in source code, not by this terminal.' },
+      { kind: 'system', text: 'Read-only diagnostic console ready. No administrative commands are available.' },
       { kind: 'system', text: 'This is a diagnostic simulator console, not an operating-system shell.' },
     ]);
     setGplatesTestState('idle');
@@ -2445,13 +2445,11 @@ function App() {
         '  whoami               Show the console user',
         '  clear                Clear console output',
         '  exit                 Close the terminal',
-        '  sudo close           Show how to close the target in source code',
-        '  sudo open            Show how to open the target in source code',
-        '  sudo close <system>  Show source-code change for a named system',
-        '  sudo open <system>   Show source-code change for a named system',
+        '  snapshot             Show a read-only runtime summary',
+        '  testgplates          Test GPlates service connectivity',
+        '  logs                 Show recent diagnostic log entries',
         '',
-        'System aliases: past-globe, mass-space, phivolcs, plate-lab.',
-        'No server or remote control API is used. Edit SYSTEM_CATALOG in src/main.jsx to change availability.',
+        'This console is read-only. Administrative and system-control commands are disabled.',
       ].join('\n'));
       return;
     }
@@ -2482,24 +2480,34 @@ function App() {
       return;
     }
 
-    const adminCommand = lower.match(/^sudo\s+(open|close)(?:\s+(.+))?$/);
-    if (adminCommand) {
-      const action = adminCommand[1];
-      const requestedTarget = adminCommand[2] ? resolveSystemAlias(adminCommand[2]) : terminalTargetSystem;
-      if (!requestedTarget) {
-        terminalWrite('ERROR: Unknown system. Run ls to see valid system identifiers.', 'error');
-        return;
-      }
-      const systemName = SYSTEM_CATALOG[requestedTarget].name;
-      terminalWrite(
-        'Code-defined status: ' + systemName + ' is ' + (systemAvailability[requestedTarget] ? 'OPEN' : 'CLOSED') + '.',
-        'system'
-      );
-      terminalWrite("To change it for everyone, edit SYSTEM_CATALOG in src/main.jsx: set status to '" + (action === 'open' ? 'open' : 'close') + "' and redeploy the site. Terminal commands do not modify source code.", 'output');
+    if (lower === 'snapshot') {
+      const snapshot = {
+        target: terminalTargetSystem,
+        availability: systemAvailability,
+        age,
+        keyframeAge,
+        model: modelForAge(keyframeAge),
+        cache: cacheProgress.cached + '/' + cacheProgress.total,
+        online: navigator.onLine,
+        indexedDB: 'indexedDB' in window,
+        viewport: window.innerWidth + 'x' + window.innerHeight,
+      };
+      diagnostic('info', 'SYSTEM', 'Runtime snapshot', snapshot);
+      terminalWrite(JSON.stringify(snapshot, null, 2));
+      return;
+    }
+    if (lower === 'testgplates') {
+      terminalWrite('Testing GPlates connectivity…');
+      const result = await testGplatesConnectivity();
+      terminalWrite('GPlates connectivity: ' + (result.ok ? 'PASSED' : 'FAILED') + (result.message ? ' — ' + result.message : ''), result.ok ? 'success' : 'error');
+      return;
+    }
+    if (lower === 'logs') {
+      terminalWrite(diagnosticLines.slice(-80).join('\\n') || 'No diagnostic log entries yet.');
       return;
     }
     if (lower.startsWith('sudo ')) {
-      terminalWrite('PERMISSION DENIED: supported privileged actions are "sudo open" and "sudo close".', 'error');
+      terminalWrite('READ ONLY: administrative commands are disabled. Use status, snapshot, testgplates, or logs for diagnostics.', 'error');
       return;
     }
     if (lower === 'pwd') {
@@ -2530,7 +2538,7 @@ function App() {
         className="diagnostics-terminal"
         role="dialog"
         aria-modal="true"
-        aria-label="Earth Systems restricted terminal"
+        aria-label="Earth Systems diagnostic console"
         onMouseDown={(event) => event.stopPropagation()}
       >
         <div className="terminal-windowbar">
@@ -2538,7 +2546,7 @@ function App() {
             <span className="terminal-dot terminal-dot-red" />
             <span className="terminal-dot terminal-dot-amber" />
             <span className="terminal-dot terminal-dot-green" />
-            <strong>Earth Systems — restricted terminal</strong>
+            <strong>Earth Systems — diagnostics</strong>
           </div>
           <div className="terminal-window-meta">{SYSTEM_CATALOG[terminalTargetSystem]?.name || 'System console'}</div>
           <button className="terminal-close" type="button" onClick={() => {
@@ -2579,7 +2587,7 @@ function App() {
             <div className="terminal-head">
               <div>
                 <strong>LOCAL CONSOLE · {SYSTEM_CATALOG[terminalTargetSystem]?.name || 'SYSTEM'}</strong>
-                <span>Command interpreter · type help for available commands</span>
+                <span>Read-only diagnostic tools · type help for commands</span>
               </div>
               <div className="terminal-tools">
                 <button
@@ -2780,8 +2788,7 @@ function App() {
               }}
               aria-expanded={terminalOpen}
               aria-controls="diagnostics-terminal"
-              aria-label="Return to home; right-click to open diagnostics terminal"
-              title="Click: Home · Right-click: Diagnostics terminal"
+              aria-label="Return to home"
             >
               <span /><span /><span />
             </button>
@@ -3296,8 +3303,7 @@ function App() {
               }}
               aria-expanded={terminalOpen}
               aria-controls="diagnostics-terminal"
-              aria-label="Return to home; right-click to open diagnostics terminal"
-              title="Click: Home · Right-click: Diagnostics terminal"
+              aria-label="Return to home"
             >
               <span /><span /><span />
             </button>
@@ -3389,11 +3395,11 @@ function App() {
         <section className="system-landing-content">
           <p className="system-eyebrow">A window into our planet</p>
           <h1>Where Was<br /><span>the Earth?</span></h1>
-          <p className="system-intro">Choose a system to continue. Right-click any system tile to open its diagnostic terminal.</p>
+          <p className="system-intro">Choose a system to continue. </p>
           {systemAvailabilityError && <p className="system-availability-notice system-availability-warning" role="status">{systemAvailabilityError}</p>}
           {systemAvailabilityNotice && <p className="system-availability-notice" role="status">{systemAvailabilityNotice}</p>}
           <div className="system-choice-grid">
-            <button className={'system-choice system-choice-primary' + (!systemAvailability['past-globe'] ? ' system-choice-closed' : '')} type="button" onClick={() => openSystem('past-globe')} onContextMenu={(event) => { event.preventDefault(); openSystemTerminal('past-globe'); }} title={!systemAvailability['past-globe'] ? 'Not currently available · Right-click to open terminal' : 'Right-click to open terminal'}>
+            <button className={'system-choice system-choice-primary' + (!systemAvailability['past-globe'] ? ' system-choice-closed' : '')} type="button" onClick={() => openSystem('past-globe')} onContextMenu={(event) => { event.preventDefault(); openSystemTerminal('past-globe'); }} title={!systemAvailability['past-globe'] ? 'Not currently available' : ''}>
               <span className="system-choice-icon" aria-hidden="true">◉</span>
               <span className="system-choice-copy">
                 <strong>Past Globe</strong>
@@ -3402,7 +3408,7 @@ function App() {
               </span>
               <span className="system-choice-arrow" aria-hidden="true">↗</span>
             </button>
-            <button className={'system-choice system-choice-primary' + (!systemAvailability['mass-space'] ? ' system-choice-closed' : '')} type="button" onClick={() => openSystem('mass-space')} onContextMenu={(event) => { event.preventDefault(); openSystemTerminal('mass-space'); }} title={!systemAvailability['mass-space'] ? 'Not currently available · Right-click to open terminal' : 'Right-click to open terminal'}>
+            <button className={'system-choice system-choice-primary' + (!systemAvailability['mass-space'] ? ' system-choice-closed' : '')} type="button" onClick={() => openSystem('mass-space')} onContextMenu={(event) => { event.preventDefault(); openSystemTerminal('mass-space'); }} title={!systemAvailability['mass-space'] ? 'Not currently available' : ''}>
               <span className="system-choice-icon" aria-hidden="true">◌</span>
               <span className="system-choice-copy">
                 <strong>Mass in Space</strong>
@@ -3411,7 +3417,7 @@ function App() {
               </span>
               <span className="system-choice-arrow" aria-hidden="true">↗</span>
             </button>
-            <button className={'system-choice system-choice-primary' + (!systemAvailability.phivolcs ? ' system-choice-closed' : '')} type="button" onClick={() => openSystem('phivolcs')} onContextMenu={(event) => { event.preventDefault(); openSystemTerminal('phivolcs'); }} title={!systemAvailability.phivolcs ? 'Not currently available · Right-click to open terminal' : 'Right-click to open terminal'}>
+            <button className={'system-choice system-choice-primary' + (!systemAvailability.phivolcs ? ' system-choice-closed' : '')} type="button" onClick={() => openSystem('phivolcs')} onContextMenu={(event) => { event.preventDefault(); openSystemTerminal('phivolcs'); }} title={!systemAvailability.phivolcs ? 'Not currently available' : ''}>
               <span className="system-choice-icon" aria-hidden="true">⌁</span>
               <span className="system-choice-copy">
                 <strong>Global Seismic &amp; Volcanic Monitor</strong>
@@ -3420,7 +3426,7 @@ function App() {
               </span>
               <span className="system-choice-arrow" aria-hidden="true">↗</span>
             </button>
-            <button className={'system-choice system-choice-primary system-choice-lab' + (!systemAvailability['plate-lab'] ? ' system-choice-closed' : '')} type="button" onClick={() => openSystem('plate-lab')} onContextMenu={(event) => { event.preventDefault(); openSystemTerminal('plate-lab'); }} title={!systemAvailability['plate-lab'] ? 'Not currently available · Right-click to open terminal' : 'Right-click to open terminal'}>
+            <button className={'system-choice system-choice-primary system-choice-lab' + (!systemAvailability['plate-lab'] ? ' system-choice-closed' : '')} type="button" onClick={() => openSystem('plate-lab')} onContextMenu={(event) => { event.preventDefault(); openSystemTerminal('plate-lab'); }} title={!systemAvailability['plate-lab'] ? 'Not currently available' : ''}>
               <span className="system-choice-icon" aria-hidden="true">⌁</span>
               <span className="system-choice-copy">
                 <strong>Plate Tectonics Laboratory</strong>
@@ -3471,8 +3477,7 @@ function App() {
             }}
             aria-expanded={terminalOpen}
             aria-controls="diagnostics-terminal"
-            aria-label="Return to home; right-click to open diagnostics terminal"
-            title="Click: Home · Right-click: Diagnostics terminal"
+            aria-label="Return to home"
           >
             <span /><span /><span />
           </button>
