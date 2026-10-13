@@ -2420,18 +2420,17 @@ function App() {
     setSystemSelected(target);
     if (target === 'plate-lab') setLabInitialBoundaryName(null);
   };
-  const copySystemLinks = async () => {
+  const copySystemLink = async (systemId) => {
+    const query = Object.entries(DIRECT_SYSTEM_LINKS).find(([, id]) => id === systemId)?.[0];
+    if (!query || !systemAvailability[systemId]) return;
     const cleanPath = window.location.pathname.replace(/\/+$/, '') || '/';
-    const baseUrl = window.location.origin + cleanPath;
-    const links = Object.entries(DIRECT_SYSTEM_LINKS)
-      .filter(([, systemId]) => systemAvailability[systemId])
-      .map(([query, systemId]) => SYSTEM_CATALOG[systemId].name + ': ' + baseUrl + '?' + query);
+    const link = window.location.origin + cleanPath + '?' + query;
     try {
-      await navigator.clipboard.writeText(links.join('\n'));
+      await navigator.clipboard.writeText(link);
       setSystemLinksCopied(true);
       window.setTimeout(() => setSystemLinksCopied(false), 2200);
     } catch {
-      setSystemAvailabilityNotice('Clipboard access was blocked by the browser. Copy the links from the address bar or try a secure browser context.');
+      setSystemAvailabilityNotice('Clipboard access was blocked by the browser. Try copying the link from a secure browser context.');
     }
   };
 
@@ -2840,6 +2839,9 @@ function App() {
             </div>
           </div>
           <div className="phivolcs-header-actions">
+            <button className="copy-system-link-button" type="button" onClick={() => copySystemLink('phivolcs')} title="Copy a direct link to this monitor">
+              <span aria-hidden="true">⧉</span> {systemLinksCopied ? 'Copied' : 'Copy link'}
+            </button>
             <span className={(quakeLoading || (quakeLayer === 'volcanoes' && volcanoLoading)) ? 'quake-live-state is-loading' : 'quake-live-state'}>
               <span className="quake-live-dot" />
               {(quakeLoading || (quakeLayer === 'volcanoes' && volcanoLoading))
@@ -3352,7 +3354,12 @@ function App() {
 
           </div>
           <div className="mass-brand"><span className="mass-brand-orb">✦</span><span>EARTH &amp; SPACE</span></div>
-          <span className="mass-header-tag">GRAVITY EXPLORER</span>
+          <div className="mass-header-actions">
+            <span className="mass-header-tag">GRAVITY EXPLORER</span>
+            <button className="copy-system-link-button" type="button" onClick={() => copySystemLink('mass-space')} title="Copy a direct link to Mass in Space">
+              <span aria-hidden="true">⧉</span> {systemLinksCopied ? 'Copied' : 'Copy link'}
+            </button>
+          </div>
         </header>
         <section className="mass-space-main">
           <p className="mass-eyebrow">YOUR MASS, ELSEWHERE</p>
@@ -3435,9 +3442,6 @@ function App() {
             <span className="system-brand-orb" aria-hidden="true"><span /></span>
             <span>EARTH SYSTEMS</span>
           </div>
-          <button className="copy-system-links-button" type="button" onClick={copySystemLinks}>
-            <span aria-hidden="true">⧉</span> {systemLinksCopied ? 'Links copied' : 'Copy direct links'}
-          </button>
         </header>
         <section className="system-landing-content">
           <p className="system-eyebrow">A window into our planet</p>
@@ -3534,6 +3538,9 @@ function App() {
           <div className="status-dot" data-status={status} /><span>{statusText}</span><span className="status-divider">·</span><span>model {modelForAge(age)}</span><span className="status-divider">·</span><span>keyframes {cacheProgress.cached}/{cacheProgress.total}</span>
         </div>
         <div className="header-actions">
+          <button className="copy-system-link-button" type="button" onClick={() => copySystemLink('past-globe')} title="Copy a direct link to Past Globe">
+            <span aria-hidden="true">⧉</span> {systemLinksCopied ? 'Copied' : 'Copy link'}
+          </button>
           <button className="present-button" onClick={() => handleAge(0)}><span aria-hidden="true">↻</span> Present day</button>
         </div>
       </header>
