@@ -198,26 +198,34 @@ export class SystemState extends DurableObject {
     if (url.pathname === "/internal/auth/check" && request.method === "POST") {
       const body = await request.json().catch(() => null);
       if (typeof body?.key !== "string" || body.key.length > 100) return json({ error: "Invalid rate-limit key." }, 400);
-      const now = Date.now();
-      const attempts = await storage.get("auth:" + body.key) || { failures: 0, windowStartedAt: now, blockedUntil: 0 };
-      if (attempts.blockedUntil > now) {
-        return json({ allowed: false, retryAfterSeconds: Math.ceil((attempts.blockedUntil - now) / 1000) });
-      }
-      if (now - attempts.windowStartedAt > AUTH_LOCKOUT_MS) await storage.delete("auth:" + body.key);
-      return json({ allowed: true });
+      const rateResult = await storage.transaction(async (transaction) => {
+        const now = Date.now();
+        const key = "auth:" + body.key;
+        const attempts = await transaction.get(key) || { failures: 0, windowStartedAt: now, blockedUntil: 0 };
+        if (attempts.blockedUntil > now) {
+          return { allowed: false, retryAfterSeconds: Math.ceil((attempts.blockedUntil - now) / 1000) };
+        }
+        if (now - attempts.windowStartedAt > AUTH_LOCKOUT_MS) await transaction.delete(key);
+        return { allowed: true };
+      });
+      return json(rateResult);
     }
     if (url.pathname === "/internal/auth/fail" && request.method === "POST") {
       const body = await request.json().catch(() => null);
       if (typeof body?.key !== "string" || body.key.length > 100) return json({ error: "Invalid rate-limit key." }, 400);
-      const now = Date.now();
-      const old = await storage.get("auth:" + body.key);
-      const attempts = !old || now - old.windowStartedAt > AUTH_LOCKOUT_MS
-        ? { failures: 0, windowStartedAt: now, blockedUntil: 0 }
-        : old;
-      attempts.failures += 1;
-      if (attempts.failures >= MAX_FAILED_ATTEMPTS) attempts.blockedUntil = now + AUTH_LOCKOUT_MS;
-      await storage.put("auth:" + body.key, attempts);
-      return json({ blocked: attempts.blockedUntil > now });
+      const failureResult = await storage.transaction(async (transaction) => {
+        const now = Date.now();
+        const key = "auth:" + body.key;
+        const old = await transaction.get(key);
+        const attempts = !old || now - old.windowStartedAt > AUTH_LOCKOUT_MS
+          ? { failures: 0, windowStartedAt: now, blockedUntil: 0 }
+          : old;
+        attempts.failures += 1;
+        if (attempts.failures >= MAX_FAILED_ATTEMPTS) attempts.blockedUntil = now + AUTH_LOCKOUT_MS;
+        await transaction.put(key, attempts);
+        return { blocked: attempts.blockedUntil > now };
+      });
+      return json(failureResult);
     }
     if (url.pathname === "/internal/auth/success" && request.method === "POST") {
       const body = await request.json().catch(() => null);
