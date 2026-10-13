@@ -145,7 +145,7 @@ const SYSTEM_CATALOG = {
   phivolcs: { name: 'Global Seismic & Volcanic Monitor', description: 'Global earthquake and volcano monitoring.' },
   'plate-lab': { name: 'Plate Tectonics Laboratory', description: 'Interactive tectonics experiments.' },
 };
-const SYSTEMS_API_BASE_URL = String(import.meta.env.VITE_SYSTEMS_API_URL || '').replace(/\\/+$/u, '');
+const SYSTEMS_API_BASE_URL = String(import.meta.env.VITE_SYSTEMS_API_URL || '').replace(/\/+$/u, '');
 const SYSTEM_CONTROL_IDS = Object.keys(SYSTEM_CATALOG);
 
 async function requestSystemsApi(path, options = {}) {
@@ -2659,7 +2659,7 @@ function App() {
                 {terminalAuthenticating ? 'VERIFYING…' : 'AUTHENTICATE'}
               </button>
             </form>
-            <p className="terminal-auth-foot">PBKDF2 password verifier · Restricted simulator console</p>
+            <p className="terminal-auth-foot">Server-side admin secret · Rate-limited login · 15-minute signed session</p>
           </div>
         ) : (
           <div className="terminal-session">
