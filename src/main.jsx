@@ -139,6 +139,40 @@ const SMITHSONIAN_VOLCANO_WFS_URL = 'https://webservices.volcano.si.edu/geoserve
 const USGS_VOLCANO_ALERTS_URL = 'https://volcanoes.usgs.gov/hans-public/api/volcano/getElevatedVolcanoes';
 const VOLCANO_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 
+const SYSTEM_CATALOG = {
+  'past-globe': { name: 'Past Globe', description: 'Explore Earth through geological time.' },
+  'mass-space': { name: 'Mass in Space', description: 'Compare weight across the Solar System.' },
+  phivolcs: { name: 'Global Seismic & Volcanic Monitor', description: 'Global earthquake and volcano monitoring.' },
+  'plate-lab': { name: 'Plate Tectonics Laboratory', description: 'Interactive tectonics experiments.' },
+};
+const SYSTEM_AVAILABILITY_STORAGE_KEY = 'earthsystems_system_availability_v1';
+const TERMINAL_PASSWORD_SALT = 'ErcifOvwlJOow+aHO6EHmA==';
+const TERMINAL_PASSWORD_DERIVED_KEY = 'HoxNfNXgra704plVssZfTLnTNlwoBK6A1LYvgtGry2E=';
+const TERMINAL_PASSWORD_ITERATIONS = 310000;
+
+// The password itself is never stored in this client bundle. This PBKDF2 verifier
+// is suitable for a toy/restricted console, not for protecting a real server.
+async function verifyTerminalPassword(candidate) {
+  if (!window.crypto?.subtle) throw new Error('Secure password verification is unavailable in this browser.');
+  const encoder = new TextEncoder();
+  const key = await window.crypto.subtle.importKey('raw', encoder.encode(candidate), 'PBKDF2', false, ['deriveBits']);
+  const salt = Uint8Array.from(atob(TERMINAL_PASSWORD_SALT), (character) => character.charCodeAt(0));
+  const bits = await window.crypto.subtle.deriveBits({
+    name: 'PBKDF2',
+    salt,
+    iterations: TERMINAL_PASSWORD_ITERATIONS,
+    hash: 'SHA-256',
+  }, key, 256);
+  const bytes = new Uint8Array(bits);
+  const encoded = btoa(Array.from(bytes, (byte) => String.fromCharCode(byte)).join(''));
+  if (encoded.length !== TERMINAL_PASSWORD_DERIVED_KEY.length) return false;
+  let difference = 0;
+  for (let index = 0; index < encoded.length; index += 1) {
+    difference |= encoded.charCodeAt(index) ^ TERMINAL_PASSWORD_DERIVED_KEY.charCodeAt(index);
+  }
+  return difference === 0;
+}
+
 function equirectangularPoint(longitude, latitude) {
   return {
     x: ((Number(longitude) + 180) / 360) * GLOBAL_MAP_WIDTH,
@@ -1212,6 +1246,16 @@ function App() {
   const requestRef = useRef(0);
   const [systemSelected, setSystemSelected] = useState('landing');
   const [labInitialBoundaryName, setLabInitialBoundaryName] = useState(null);
+  const [systemAvailability, setSystemAvailability] = useState(() => {
+    const defaults = Object.fromEntries(Object.keys(SYSTEM_CATALOG).map((id) => [id, true]));
+    try {
+      const saved = JSON.parse(window.localStorage.getItem(SYSTEM_AVAILABILITY_STORAGE_KEY) || '{}');
+      return Object.fromEntries(Object.keys(SYSTEM_CATALOG).map((id) => [id, saved[id] !== false]));
+    } catch {
+      return defaults;
+    }
+  });
+  const [systemAvailabilityNotice, setSystemAvailabilityNotice] = useState('');
   const [quakeLayer, setQuakeLayer] = useState('earthquakes');
   const [quakeMapView, setQuakeMapView] = useState({ zoom: 1, panX: 0, panY: 0 });
   const [volcanoSites, setVolcanoSites] = useState([]);
@@ -1279,6 +1323,16 @@ function App() {
   const [cacheGeneration, setCacheGeneration] = useState(0);
   const [isResettingCache, setIsResettingCache] = useState(false);
   const [terminalOpen, setTerminalOpen] = useState(false);
+  const [terminalTargetSystem, setTerminalTargetSystem] = useState('past-globe');
+  const [terminalUnlocked, setTerminalUnlocked] = useState(false);
+  const [terminalPasswordInput, setTerminalPasswordInput] = useState('');
+  const [terminalPasswordError, setTerminalPasswordError] = useState('');
+  const [terminalAuthenticating, setTerminalAuthenticating] = useState(false);
+  const [terminalCommandInput, setTerminalCommandInput] = useState('');
+  const [terminalLines, setTerminalLines] = useState([
+    { kind: 'system', text: 'Earth Systems restricted console initialized.' },
+  ]);
+  const terminalCommandInputRef = useRef(null);
   const terminalBodyRef = useRef(null);
   const [diagnosticLines, setDiagnosticLines] = useState([
     '--- intheglobe diagnostics boot ---',
@@ -1288,6 +1342,14 @@ function App() {
   const [reducedMotion, setReducedMotion] = useState(
     window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
   );
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(SYSTEM_AVAILABILITY_STORAGE_KEY, JSON.stringify(systemAvailability));
+    } catch {
+      // Availability remains functional for this session when storage is blocked.
+    }
+  }, [systemAvailability]);
 
   useEffect(() => {
     setDiagnosticSink((line) => {
@@ -2336,37 +2398,238 @@ function App() {
     setIsPlaying(false);
   };
 
-  const renderTerminal = () => terminalOpen ? (
-        <div
-          className="diagnostics-overlay"
-          role="presentation"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget) setTerminalOpen(false);
-          }}
-        >
-          <section
-            id="diagnostics-terminal"
-            className="diagnostics-terminal"
-            role="dialog"
-            aria-modal="true"
-            aria-label="intheglobe diagnostics terminal"
-            onMouseDown={(event) => event.stopPropagation()}
-          >
-            <div className="terminal-windowbar">
-              <div className="terminal-window-title">
-                <span className="terminal-dot terminal-dot-red" />
-                <span className="terminal-dot terminal-dot-amber" />
-                <span className="terminal-dot terminal-dot-green" />
-                <strong>intheglobe — diagnostics terminal</strong>
-              </div>
-              <div className="terminal-window-meta">{diagnosticLines.length} lines · live</div>
-              <button className="terminal-close" type="button" onClick={() => setTerminalOpen(false)} aria-label="Close terminal">×</button>
-            </div>
+  const openSystemTerminal = (systemId) => {
+    const target = SYSTEM_CATALOG[systemId] ? systemId : 'past-globe';
+    setTerminalTargetSystem(target);
+    setTerminalOpen(true);
+    setTerminalUnlocked(false);
+    setTerminalPasswordInput('');
+    setTerminalPasswordError('');
+    setTerminalAuthenticating(false);
+    setTerminalCommandInput('');
+    setTerminalLines([
+      { kind: 'system', text: '--- EARTH SYSTEMS RESTRICTED CONSOLE ---' },
+      { kind: 'system', text: 'Target: ' + SYSTEM_CATALOG[target].name },
+      { kind: 'system', text: 'Authentication required. Enter the console password to continue.' },
+      { kind: 'system', text: 'This is a restricted simulator console, not an operating-system shell.' },
+    ]);
+    setGplatesTestState('idle');
+  };
 
+  const openSystem = (systemId) => {
+    const target = SYSTEM_CATALOG[systemId] ? systemId : 'past-globe';
+    if (!systemAvailability[target]) {
+      setSystemAvailabilityNotice(SYSTEM_CATALOG[target].name + ' is NOT CURRENTLY AVAILABLE. Right-click its tile to open the terminal.');
+      return;
+    }
+    setSystemAvailabilityNotice('');
+    setSystemSelected(target);
+    if (target === 'plate-lab') setLabInitialBoundaryName(null);
+  };
+
+  const submitTerminalPassword = async (event) => {
+    event.preventDefault();
+    if (terminalAuthenticating) return;
+    setTerminalAuthenticating(true);
+    setTerminalPasswordError('');
+    try {
+      const accepted = await verifyTerminalPassword(terminalPasswordInput);
+      if (!accepted) {
+        setTerminalPasswordError('ACCESS DENIED — incorrect password.');
+        setTerminalPasswordInput('');
+        return;
+      }
+      setTerminalUnlocked(true);
+      setTerminalPasswordInput('');
+      setTerminalLines((previous) => [
+        ...previous,
+        { kind: 'success', text: 'Authentication accepted.' },
+        { kind: 'system', text: 'Restricted command interpreter ready. Type help for supported commands.' },
+      ]);
+    } catch (error) {
+      setTerminalPasswordError(error?.message || 'Password verification failed.');
+    } finally {
+      setTerminalAuthenticating(false);
+    }
+  };
+
+  const terminalWrite = (text, kind = 'output') => {
+    setTerminalLines((previous) => [...previous, { kind, text: String(text) }].slice(-180));
+  };
+
+  const resolveSystemAlias = (rawAlias) => {
+    const alias = String(rawAlias || '').trim().toLowerCase();
+    if (!alias) return terminalTargetSystem;
+    const normalised = alias.replaceAll('_', '-').replaceAll(' ', '-');
+    const entry = Object.entries(SYSTEM_CATALOG).find(([id, details]) =>
+      id === normalised || details.name.toLowerCase() === alias
+      || (id === 'phivolcs' && ['monitor', 'volcano-monitor', 'seismic-monitor'].includes(normalised))
+      || (id === 'plate-lab' && ['tectonics', 'plate-tectonics', 'lab'].includes(normalised))
+      || (id === 'mass-space' && ['mass', 'space'].includes(normalised))
+      || (id === 'past-globe' && ['globe', 'pastglobe'].includes(normalised))
+    );
+    return entry?.[0] || null;
+  };
+
+  const submitTerminalCommand = (event) => {
+    event.preventDefault();
+    if (!terminalUnlocked) return;
+    const command = terminalCommandInput.trim();
+    if (!command) return;
+    setTerminalCommandInput('');
+    setTerminalLines((previous) => [...previous, { kind: 'command', text: 'charlie@earthsystems:~$ ' + command }].slice(-180));
+    const lower = command.toLowerCase();
+
+    if (lower === 'help' || lower === 'help sudo') {
+      terminalWrite([
+        'SUPPORTED COMMANDS',
+        '  help                 Show this command list',
+        '  status               Show whether each system is available',
+        '  ls                   List system identifiers',
+        '  whoami               Show the console user',
+        '  clear                Clear console output',
+        '  exit                 Close the terminal',
+        '  sudo close           Mark the terminal target as unavailable',
+        '  sudo open            Mark the terminal target as available',
+        '  sudo close <system>  Close a named system',
+        '  sudo open <system>   Open a named system',
+        '',
+        'System aliases: past-globe, mass-space, phivolcs, plate-lab.',
+        'Only these simulated commands are supported. No arbitrary shell commands run.',
+      ].join('\n'));
+      return;
+    }
+    if (lower === 'whoami') {
+      terminalWrite('charlie · authenticated console session');
+      return;
+    }
+    if (lower === 'ls' || lower === 'systems') {
+      terminalWrite(Object.entries(SYSTEM_CATALOG).map(([id, item]) =>
+        id + (systemAvailability[id] ? '  [AVAILABLE]' : '  [NOT CURRENTLY AVAILABLE]') + '  — ' + item.name
+      ).join('\n'));
+      return;
+    }
+    if (lower === 'status') {
+      terminalWrite(Object.entries(SYSTEM_CATALOG).map(([id, item]) =>
+        item.name + ': ' + (systemAvailability[id] ? 'AVAILABLE' : 'NOT CURRENTLY AVAILABLE')
+      ).join('\n'));
+      return;
+    }
+    if (lower === 'clear' || lower === 'cls') {
+      setTerminalLines([{ kind: 'system', text: 'Console cleared.' }]);
+      return;
+    }
+    if (lower === 'exit' || lower === 'logout') {
+      setTerminalOpen(false);
+      setTerminalUnlocked(false);
+      return;
+    }
+
+    const adminCommand = lower.match(/^sudo\s+(open|close)(?:\s+(.+))?$/);
+    if (adminCommand) {
+      const action = adminCommand[1];
+      const requestedTarget = adminCommand[2] ? resolveSystemAlias(adminCommand[2]) : terminalTargetSystem;
+      if (!requestedTarget) {
+        terminalWrite('ERROR: Unknown system. Run ls to see valid system identifiers.', 'error');
+        return;
+      }
+      const systemName = SYSTEM_CATALOG[requestedTarget].name;
+      const nextAvailability = action === 'open';
+      if (systemAvailability[requestedTarget] === nextAvailability) {
+        terminalWrite(systemName + ' is already ' + (nextAvailability ? 'AVAILABLE.' : 'NOT CURRENTLY AVAILABLE.'));
+        return;
+      }
+      setSystemAvailability((previous) => ({ ...previous, [requestedTarget]: nextAvailability }));
+      setSystemAvailabilityNotice(systemName + (nextAvailability
+        ? ' is now AVAILABLE.'
+        : ' is now NOT CURRENTLY AVAILABLE. Right-click its home-screen tile to reopen the terminal.'));
+      terminalWrite(systemName + ' → ' + (nextAvailability ? 'AVAILABLE' : 'NOT CURRENTLY AVAILABLE'), 'success');
+      if (!nextAvailability && systemSelected === requestedTarget) {
+        setSystemSelected('landing');
+        setLabInitialBoundaryName(null);
+      }
+      return;
+    }
+    if (lower.startsWith('sudo ')) {
+      terminalWrite('PERMISSION DENIED: supported privileged actions are "sudo open" and "sudo close".', 'error');
+      return;
+    }
+    if (lower === 'pwd') {
+      terminalWrite('/earth-systems/' + terminalTargetSystem);
+      return;
+    }
+    if (lower === 'date') {
+      terminalWrite(new Date().toString());
+      return;
+    }
+    terminalWrite('command not found: ' + command + '. This restricted console only supports commands shown by help.', 'error');
+  };
+
+  const renderTerminal = () => terminalOpen ? (
+    <div
+      className="diagnostics-overlay"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) {
+          setTerminalOpen(false);
+          setTerminalUnlocked(false);
+        }
+      }}
+    >
+      <section
+        id="diagnostics-terminal"
+        className="diagnostics-terminal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Earth Systems restricted terminal"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="terminal-windowbar">
+          <div className="terminal-window-title">
+            <span className="terminal-dot terminal-dot-red" />
+            <span className="terminal-dot terminal-dot-amber" />
+            <span className="terminal-dot terminal-dot-green" />
+            <strong>Earth Systems — restricted terminal</strong>
+          </div>
+          <div className="terminal-window-meta">{SYSTEM_CATALOG[terminalTargetSystem]?.name || 'System console'}</div>
+          <button className="terminal-close" type="button" onClick={() => {
+            setTerminalOpen(false);
+            setTerminalUnlocked(false);
+          }} aria-label="Close terminal">×</button>
+        </div>
+
+        {!terminalUnlocked ? (
+          <div className="terminal-auth-panel">
+            <span className="terminal-auth-mark" aria-hidden="true">⌘</span>
+            <p className="terminal-auth-eyebrow">PRIVILEGED ACCESS REQUIRED</p>
+            <h2>Authenticate console</h2>
+            <p>Target system: <strong>{SYSTEM_CATALOG[terminalTargetSystem]?.name || 'Earth Systems'}</strong></p>
+            <form className="terminal-auth-form" onSubmit={submitTerminalPassword}>
+              <label htmlFor="terminal-password">Password</label>
+              <input
+                id="terminal-password"
+                type="password"
+                value={terminalPasswordInput}
+                onChange={(event) => setTerminalPasswordInput(event.target.value)}
+                placeholder="Enter terminal password"
+                autoComplete="current-password"
+                autoFocus
+                required
+                disabled={terminalAuthenticating}
+              />
+              {terminalPasswordError && <p className="terminal-auth-error" role="alert">{terminalPasswordError}</p>}
+              <button type="submit" disabled={terminalAuthenticating || !terminalPasswordInput}>
+                {terminalAuthenticating ? 'VERIFYING…' : 'AUTHENTICATE'}
+              </button>
+            </form>
+            <p className="terminal-auth-foot">PBKDF2 password verifier · Restricted simulator console</p>
+          </div>
+        ) : (
+          <div className="terminal-session">
             <div className="terminal-head">
               <div>
-                <strong>RUNTIME DIAGNOSTICS</strong>
-                <span>Current {shortAge(age)} · keyframe {shortAge(keyframeAge)} · model {modelForAge(keyframeAge)}</span>
+                <strong>AUTHENTICATED · {SYSTEM_CATALOG[terminalTargetSystem]?.name || 'SYSTEM'}</strong>
+                <span>Command interpreter · type help for available commands</span>
               </div>
               <div className="terminal-tools">
                 <button
@@ -2376,51 +2639,78 @@ function App() {
                     setGplatesTestState('testing');
                     const result = await testGplatesConnectivity();
                     setGplatesTestState(result.ok ? 'passed' : 'failed');
+                    terminalWrite('GPlates connectivity: ' + (result.ok ? 'PASSED' : 'FAILED'), result.ok ? 'success' : 'error');
                   }}
                   disabled={gplatesTestState === 'testing'}
                 >{gplatesTestState === 'testing' ? 'TESTING…' : gplatesTestState === 'passed' ? 'GPlates OK' : gplatesTestState === 'failed' ? 'GPlates FAIL' : 'TEST GPlATES'}</button>
                 <button type="button" onClick={async () => {
                   try {
                     if (!navigator.clipboard) throw new Error('Clipboard API unavailable');
-                    await navigator.clipboard.writeText(diagnosticLines.join('\\n'));
-                    diagnostic('info', 'UI', 'Diagnostic log copied');
+                    await navigator.clipboard.writeText(terminalLines.map((line) => line.text).join('\n'));
+                    terminalWrite('Console history copied.');
                   } catch (error) {
-                    diagnostic('warn', 'UI', 'Could not copy diagnostic log', { message: error?.message });
+                    terminalWrite('Could not copy console history: ' + (error?.message || String(error)), 'error');
                   }
                 }}>COPY LOG</button>
-                <button type="button" onClick={() => setDiagnosticLines(['--- LOG CLEARED ---', new Date().toISOString().slice(11, 23) + ' INFO  [SYSTEM] Log cleared by user.'])}>CLEAR</button>
-                <button type="button" onClick={() => diagnostic('info','SYSTEM','Runtime snapshot', {
-                  age,
-                  keyframeAge,
-                  model: modelForAge(keyframeAge),
-                  cache: cacheProgress.cached + '/' + cacheProgress.total,
-                  online: navigator.onLine,
-                  indexedDB: 'indexedDB' in window,
-                  viewport: window.innerWidth + 'x' + window.innerHeight,
-                })}>SNAPSHOT</button>
+                <button type="button" onClick={() => {
+                  setTerminalLines([{ kind: 'system', text: 'Console cleared.' }]);
+                  setDiagnosticLines(['--- LOG CLEARED ---', new Date().toISOString().slice(11, 23) + ' INFO  [SYSTEM] Log cleared by user.']);
+                }}>CLEAR</button>
+                <button type="button" onClick={() => {
+                  const snapshot = {
+                    target: terminalTargetSystem,
+                    availability: systemAvailability,
+                    age,
+                    keyframeAge,
+                    model: modelForAge(keyframeAge),
+                    cache: cacheProgress.cached + '/' + cacheProgress.total,
+                    online: navigator.onLine,
+                    indexedDB: 'indexedDB' in window,
+                    viewport: window.innerWidth + 'x' + window.innerHeight,
+                  };
+                  diagnostic('info', 'SYSTEM', 'Runtime snapshot', snapshot);
+                  terminalWrite(JSON.stringify(snapshot, null, 2));
+                }}>SNAPSHOT</button>
               </div>
             </div>
 
-            <pre ref={terminalBodyRef} className="terminal-body">{diagnosticLines.join('\\n')}</pre>
-
-            <div className="terminal-input">
-              <span>root@intheglobe:~$</span>
-              <span>Live diagnostics enabled — network, reconstruction, cache, world data, UI, and browser errors appear here. Use TEST GPlATES to run a direct browser connectivity check.</span>
-            </div>
-
+            <pre ref={terminalBodyRef} className="terminal-body" aria-live="polite">{terminalLines.map((line) => line.text).join('\n')}</pre>
+            <form className="terminal-command-form" onSubmit={submitTerminalCommand}>
+              <label htmlFor="terminal-command-input">charlie@earthsystems:~$</label>
+              <input
+                ref={terminalCommandInputRef}
+                id="terminal-command-input"
+                value={terminalCommandInput}
+                onChange={(event) => setTerminalCommandInput(event.target.value)}
+                autoComplete="off"
+                spellCheck="false"
+                placeholder="Type help…"
+                aria-label="Terminal command"
+              />
+              <button type="submit" disabled={!terminalCommandInput.trim()}>RUN</button>
+            </form>
+            <details className="terminal-diagnostics-details">
+              <summary>Runtime diagnostics log ({diagnosticLines.length} lines)</summary>
+              <pre className="terminal-diagnostics-log">{diagnosticLines.join('\n')}</pre>
+            </details>
             <div className="terminal-foot">
-              <span>HTTP · CACHE · FRAME · WORLD · UI · WINDOW</span>
-              <span>Cache {cacheProgress.cached}/{cacheProgress.total}</span>
+              <span>RESTRICTED COMMANDS · LOCAL AVAILABILITY STATE</span>
+              <span>{systemAvailability[terminalTargetSystem] ? 'TARGET AVAILABLE' : 'TARGET CLOSED'}</span>
             </div>
-          </section>
-        </div>
+          </div>
+        )}
+      </section>
+    </div>
   ) : null;
+
 
   if (systemSelected === 'plate-lab') {
     return (
       <PlateTectonicsLab
         countries={countries}
         initialBoundaryName={labInitialBoundaryName}
+        terminal={renderTerminal()}
+        onOpenTerminal={() => openSystemTerminal('plate-lab')}
         onHome={() => {
           setSystemSelected('landing');
           setLabInitialBoundaryName(null);
@@ -2536,7 +2826,7 @@ function App() {
               onContextMenu={(event) => {
                 event.preventDefault();
                 diagnostic('info', 'UI', 'Diagnostics terminal opened from the Earth icon context menu', { program: 'Global Seismic & Volcanic Monitor' });
-                setTerminalOpen(true);
+                openSystemTerminal('phivolcs');
               }}
               aria-expanded={terminalOpen}
               aria-controls="diagnostics-terminal"
@@ -3052,7 +3342,7 @@ function App() {
               onContextMenu={(event) => {
                 event.preventDefault();
                 diagnostic('info', 'UI', 'Diagnostics terminal opened from the Earth icon context menu', { program: 'Mass in Space' });
-                setTerminalOpen(true);
+                openSystemTerminal('mass-space');
               }}
               aria-expanded={terminalOpen}
               aria-controls="diagnostics-terminal"
@@ -3223,7 +3513,7 @@ function App() {
                 keyframe: keyframeAge,
                 cache: cacheProgress.cached + '/' + cacheProgress.total,
               });
-              setTerminalOpen(true);
+              openSystemTerminal('past-globe');
             }}
             aria-expanded={terminalOpen}
             aria-controls="diagnostics-terminal"
