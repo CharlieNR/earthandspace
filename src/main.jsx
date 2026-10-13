@@ -3282,7 +3282,7 @@ function App() {
     const selectedSlide = massSlides[massPlanetIndex];
     const massValue = Number(earthMass);
     const displayMass = Number.isFinite(massValue) && massValue >= 0 ? massValue : 0;
-    const apparentWeight = selectedSlide.overview ? null : displayMass * selectedSlide.gravity;
+    const apparentWeight = selectedSlide.overview ? null : displayMass * selectedSlide.gravity * 9.81;
     const trackStep = 100 / massSlides.length;
     return (
       <main className="mass-space">
@@ -3315,7 +3315,7 @@ function App() {
         <section className="mass-space-main">
           <p className="mass-eyebrow">YOUR MASS, ELSEWHERE</p>
           <h1>How much would you <span>weigh?</span></h1>
-          <p className="mass-intro">Enter your mass on Earth, then slide through the planets in order. Start on Earth, or use the arrows to explore.</p>
+          <p className="mass-intro">Enter your mass on Earth in kilograms, then compare your weight on each planet in newtons (N). Start on Earth, or use the arrows to explore.</p>
           <label className="mass-input-label" htmlFor="earth-mass-input">Your mass on Earth <span>kg</span></label>
           <div className="mass-input-wrap">
             <input id="earth-mass-input" type="number" min="0" max="1000000" step="0.1" value={earthMass} onChange={(event) => setEarthMass(event.target.value)} />
@@ -3341,7 +3341,7 @@ function App() {
                         <p className="mass-planet-fact">{item.fact}</p>
                         <div className="mass-overview-weights">
                           {SOLAR_SYSTEM_PLANETS.map((planetItem) => (
-                            <div key={planetItem.name}><span>{planetItem.name}</span><strong>{(displayMass * planetItem.gravity).toLocaleString(undefined, { maximumFractionDigits: 2 })} <small>kg</small></strong></div>
+                            <div key={planetItem.name}><span>{planetItem.name}</span><strong>{(displayMass * planetItem.gravity * 9.81).toLocaleString(undefined, { maximumFractionDigits: 2 })} <small>N</small></strong></div>
                           ))}
                         </div>
                       </div>
@@ -3354,7 +3354,7 @@ function App() {
                       </div>
                       <div className="mass-planet-title">{item.name}</div>
                       <div className="mass-planet-fact">{item.fact}</div>
-                      <div className="mass-slide-weight"><span>YOUR WEIGHT ON {item.name.toUpperCase()}</span><strong>{(displayMass * item.gravity).toLocaleString(undefined, { maximumFractionDigits: 2 })} <small>kg-equivalent</small></strong></div>
+                      <div className="mass-slide-weight"><span>YOUR WEIGHT ON {item.name.toUpperCase()}</span><strong>{(displayMass * item.gravity * 9.81).toLocaleString(undefined, { maximumFractionDigits: 2 })} <small>N</small></strong></div>
                       </>
                     )}
                   </div>
@@ -3372,11 +3372,11 @@ function App() {
             <button type="button" className={massPlanetIndex === SOLAR_SYSTEM_PLANETS.length ? 'mass-planet-chip active' : 'mass-planet-chip'} onClick={() => setMassPlanetIndex(SOLAR_SYSTEM_PLANETS.length)} aria-pressed={massPlanetIndex === SOLAR_SYSTEM_PLANETS.length}>Solar System</button>
           </div>
           {!selectedSlide.overview && <div className="mass-result" aria-live="polite">
-            <div><span>APPARENT WEIGHT ON {selectedSlide.name.toUpperCase()}</span><strong>{apparentWeight.toLocaleString(undefined, { maximumFractionDigits: 2 })} <small>kg-equivalent</small></strong></div>
+            <div><span>APPARENT WEIGHT ON {selectedSlide.name.toUpperCase()}</span><strong>{apparentWeight.toLocaleString(undefined, { maximumFractionDigits: 2 })} <small>N</small></strong></div>
             <div className="mass-result-divider" />
             <div><span>GRAVITY VS EARTH</span><strong>{selectedSlide.gravity.toFixed(3)}×</strong></div>
           </div>}
-          <p className="mass-science-note"><strong>Science note:</strong> your mass stays the same wherever you go. The weight figures show the equivalent kilograms on a scale calibrated for Earth gravity. Values use approximate surface gravity; the gas and ice giants have no solid surface to stand on, so their figures are comparisons at conventional reference levels.</p>
+          <p className="mass-science-note"><strong>Science note:</strong> your mass stays the same wherever you go. Weight is calculated using W = m × g, where mass is in kilograms and gravitational field strength is in m/s². The listed planetary gravities are approximate multiples of Earth's 9.81 m/s², so results are shown in newtons (N). Gas and ice giants have no solid surface, so their figures use conventional reference levels.</p>
           <div className="mass-keyboard-hint"><kbd>←</kbd><kbd>→</kbd> Slide through the planets, then the solar-system overview</div>
         </section>
         {renderTerminal()}
