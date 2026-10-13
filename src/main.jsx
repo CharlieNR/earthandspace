@@ -1352,6 +1352,14 @@ function App() {
         setSystemAvailability(result.availability);
         setSystemAvailabilityLoaded(true);
         setSystemAvailabilityError('');
+        setSystemSelected((current) => {
+          if (SYSTEM_CONTROL_IDS.includes(current) && result.availability[current] === false) {
+            setSystemAvailabilityNotice(SYSTEM_CATALOG[current].name + ' has been marked NOT CURRENTLY AVAILABLE by an administrator.');
+            setLabInitialBoundaryName(null);
+            return 'landing';
+          }
+          return current;
+        });
       } catch (error) {
         if (cancelled) return;
         setSystemAvailabilityLoaded(false);
