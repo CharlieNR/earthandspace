@@ -1352,14 +1352,6 @@ function App() {
         setSystemAvailability(result.availability);
         setSystemAvailabilityLoaded(true);
         setSystemAvailabilityError('');
-        setSystemSelected((current) => {
-          if (SYSTEM_CONTROL_IDS.includes(current) && result.availability[current] === false) {
-            setSystemAvailabilityNotice(SYSTEM_CATALOG[current].name + ' has been marked NOT CURRENTLY AVAILABLE by an administrator.');
-            setLabInitialBoundaryName(null);
-            return 'landing';
-          }
-          return current;
-        });
       } catch (error) {
         if (cancelled) return;
         setSystemAvailabilityLoaded(false);
@@ -1375,6 +1367,15 @@ function App() {
       window.clearInterval(interval);
     };
   }, []);
+
+  useEffect(() => {
+    if (!systemAvailabilityLoaded) return;
+    if (SYSTEM_CONTROL_IDS.includes(systemSelected) && systemAvailability[systemSelected] === false) {
+      setSystemAvailabilityNotice(SYSTEM_CATALOG[systemSelected].name + ' has been marked NOT CURRENTLY AVAILABLE by an administrator.');
+      setLabInitialBoundaryName(null);
+      setSystemSelected('landing');
+    }
+  }, [systemAvailability, systemAvailabilityLoaded, systemSelected]);
 
   useEffect(() => {
     setDiagnosticSink((line) => {
