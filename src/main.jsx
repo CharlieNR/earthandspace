@@ -2385,10 +2385,10 @@ function App() {
     setTerminalAuthenticating(false);
     setTerminalCommandInput('');
     setTerminalLines([
-      { kind: 'system', text: '--- EARTH SYSTEMS RESTRICTED CONSOLE ---' },
+      { kind: 'system', text: '--- EARTH SYSTEMS DIAGNOSTIC CONSOLE ---' },
       { kind: 'system', text: 'Target: ' + SYSTEM_CATALOG[target].name },
-      { kind: 'system', text: 'Authentication required. Enter the console password to continue.' },
-      { kind: 'system', text: 'This is a restricted simulator console, not an operating-system shell.' },
+      { kind: 'system', text: 'Local console ready. Availability is configured in source code, not by this terminal.' },
+      { kind: 'system', text: 'This is a diagnostic simulator console, not an operating-system shell.' },
     ]);
     setGplatesTestState('idle');
   };
@@ -2578,7 +2578,7 @@ function App() {
           <div className="terminal-session">
             <div className="terminal-head">
               <div>
-                <strong>AUTHENTICATED · {SYSTEM_CATALOG[terminalTargetSystem]?.name || 'SYSTEM'}</strong>
+                <strong>LOCAL CONSOLE · {SYSTEM_CATALOG[terminalTargetSystem]?.name || 'SYSTEM'}</strong>
                 <span>Command interpreter · type help for available commands</span>
               </div>
               <div className="terminal-tools">
