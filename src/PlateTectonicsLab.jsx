@@ -218,7 +218,7 @@ function CrossSection({ motionMode, playing }) {
   );
 }
 
-export default function PlateTectonicsLab({ countries = [], initialBoundaryName = null, onHome }) {
+export default function PlateTectonicsLab({ countries = [], initialBoundaryName = null, onHome, onOpenTerminal, terminal }) {
   const initialBoundary = PLATE_BOUNDARIES.find((boundary) => boundary.name === initialBoundaryName) || PLATE_BOUNDARIES[0];
   const [selectedBoundaryName, setSelectedBoundaryName] = useState(initialBoundary.name);
   const [typeFilter, setTypeFilter] = useState('all');
@@ -268,9 +268,10 @@ export default function PlateTectonicsLab({ countries = [], initialBoundaryName 
   };
 
   return (
+    <>
     <main className="plate-lab">
       <header className="plate-lab-topbar">
-        <button type="button" className="plate-lab-home" onClick={onHome} aria-label="Return to Earth Systems home">
+        <button type="button" className="plate-lab-home" onClick={onHome} onContextMenu={(event) => { event.preventDefault(); onOpenTerminal?.(); }} title="Click to return home · Right-click to open terminal" aria-label="Return to home; right-click to open the Plate Tectonics Laboratory terminal">
           <span className="lab-home-orb" aria-hidden="true">◉</span><span>EARTH SYSTEMS</span>
         </button>
         <div className="plate-lab-topmeta"><span className="lab-beta-badge">BETA</span><span>INTERACTIVE GEOLOGY</span></div>
@@ -360,5 +361,7 @@ export default function PlateTectonicsLab({ countries = [], initialBoundaryName 
 
       <footer className="plate-lab-footer"><span>EARTH SYSTEMS · PLATE TECTONICS LABORATORY</span><button type="button" onClick={onHome}>Back to systems ↗</button><span>Beta model · Educational schematic, not a forecast</span></footer>
     </main>
+    {terminal}
+    </>
   );
 }
