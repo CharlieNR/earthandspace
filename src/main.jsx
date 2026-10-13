@@ -4,6 +4,7 @@ import { ShapeUtils, Vector2 } from 'three';
 import Globe from 'react-globe.gl';
 import * as topojson from 'topojson-client';
 import { EVENTS, GEOLOGIC_FACTS, PLATE_BOUNDARIES, PLATES, PERIODS } from './data';
+import PlateTectonicsLab from './PlateTectonicsLab';
 import './styles.css';
 
 const WORLD_URL = 'https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json';
@@ -1210,6 +1211,7 @@ function App() {
   const quakeStageRef = useRef(null);
   const requestRef = useRef(0);
   const [systemSelected, setSystemSelected] = useState('landing');
+  const [labInitialBoundaryName, setLabInitialBoundaryName] = useState(null);
   const [quakeLayer, setQuakeLayer] = useState('earthquakes');
   const [quakeMapView, setQuakeMapView] = useState({ zoom: 1, panX: 0, panY: 0 });
   const [volcanoSites, setVolcanoSites] = useState([]);
@@ -2414,6 +2416,19 @@ function App() {
         </div>
   ) : null;
 
+  if (systemSelected === 'plate-lab') {
+    return (
+      <PlateTectonicsLab
+        countries={countries}
+        initialBoundaryName={labInitialBoundaryName}
+        onHome={() => {
+          setSystemSelected('landing');
+          setLabInitialBoundaryName(null);
+        }}
+      />
+    );
+  }
+
   if (systemSelected === 'phivolcs') {
     const selectedQuake = quakeEvents.find((event) => event.id === quakeSelectedId) || null;
     const selectedProperties = selectedQuake?.properties || null;
@@ -3160,6 +3175,27 @@ function App() {
               </span>
               <span className="system-choice-arrow" aria-hidden="true">↗</span>
             </button>
+            <button className="system-choice system-choice-primary system-choice-lab" type="button" onClick={() => {
+              setLabInitialBoundaryName(null);
+              setSystemSelected('plate-lab');
+            }}>
+              <span className="system-choice-icon" aria-hidden="true">⌁</span>
+              <span className="system-choice-copy">
+                <strong>Plate Tectonics Laboratory</strong>
+                <span>Explore boundary types, experiment with plate movement and see what happens beneath the crust.</span>
+                <small className="system-choice-badge beta">BETA</small>
+              </span>
+              <span className="system-choice-arrow" aria-hidden="true">↗</span>
+            </button>
+            <button className="system-choice system-choice-coming-soon" type="button" disabled aria-disabled="true" title="Earth Sandbox Simulator is coming soon">
+              <span className="system-choice-icon" aria-hidden="true">◇</span>
+              <span className="system-choice-copy">
+                <strong>Earth Sandbox Simulator</strong>
+                <span>Build and experiment with your own Earth systems.</span>
+                <small className="system-choice-badge coming-soon">COMING SOON</small>
+              </span>
+              <span className="system-choice-arrow" aria-hidden="true">⌛</span>
+            </button>
           </div>
           <p className="system-landing-note">More Earth systems will be added here over time.</p>
         </section>
@@ -3252,6 +3288,21 @@ function App() {
             pathDashLength={(path) => path.kind === 'country' ? 1 : path.kind === 'historical-coastline' ? 1 : (plateMode ? 0.62 : 0)}
             pathDashGap={(path) => path.kind === 'country' || path.kind === 'historical-coastline' ? 0 : (plateMode ? 0.28 : 0)}
             pathDashAnimateTime={2600}
+            pathLabel={(path) => path.kind === 'plate'
+              ? '<div class="globe-tooltip"><strong>' + path.name + '</strong><br/><span>' + path.type + ' boundary · Click to explore</span></div>'
+              : ''}
+            onPathClick={(path) => {
+              if (path?.kind !== 'plate') return;
+              setLabInitialBoundaryName(path.name);
+              setSystemSelected('plate-lab');
+              setTerminalOpen(false);
+              diagnostic('info', 'UI', 'Opened the Plate Tectonics Laboratory from a boundary overlay', {
+                boundary: path.name,
+                type: path.type,
+              });
+            }}
+            showPointerCursor={(objectType, objectData) => objectType === 'path' && objectData?.kind === 'plate'}
+            lineHoverPrecision={2}
             pointsData={eventMode ? visibleEvents : []}
             pointLat={(point) => point.lat}
             pointLng={(point) => point.lng}
