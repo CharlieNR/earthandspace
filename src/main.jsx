@@ -149,6 +149,25 @@ const SYSTEM_CATALOG = {
   'plate-lab': { name: 'Plate Tectonics Laboratory', description: 'Interactive tectonics experiments.', status: 'close' },
 };
 const SYSTEM_CONTROL_IDS = Object.keys(SYSTEM_CATALOG);
+const DIRECT_SYSTEM_LINKS = {
+  pastglobe: 'past-globe',
+  massspace: 'mass-space',
+  phivolcs: 'phivolcs',
+  platelab: 'plate-lab',
+};
+const DIRECT_SYSTEM_LINKS_BY_ID = Object.fromEntries(
+  Object.entries(DIRECT_SYSTEM_LINKS).map(([query, id]) => [id, query])
+);
+function getInitialSystemFromUrl() {
+  if (typeof window === 'undefined') return 'landing';
+  const params = new URLSearchParams(window.location.search);
+  for (const [query, id] of Object.entries(DIRECT_SYSTEM_LINKS)) {
+    if (params.has(query)) {
+      return SYSTEM_CATALOG[id]?.status === 'close' ? 'landing' : id;
+    }
+  }
+  return 'landing';
+}
 const INITIAL_SYSTEM_AVAILABILITY = Object.fromEntries(
   SYSTEM_CONTROL_IDS.map((id) => [id, SYSTEM_CATALOG[id].status !== 'close'])
 );
@@ -1224,7 +1243,8 @@ function App() {
   const quakeMapDragRef = useRef(null);
   const quakeStageRef = useRef(null);
   const requestRef = useRef(0);
-  const [systemSelected, setSystemSelected] = useState('landing');
+  const [systemSelected, setSystemSelected] = useState(() => getInitialSystemFromUrl());
+  const [systemLinksCopied, setSystemLinksCopied] = useState(false);
   const [labInitialBoundaryName, setLabInitialBoundaryName] = useState(null);
   const [systemAvailability, setSystemAvailability] = useState(INITIAL_SYSTEM_AVAILABILITY);
   const [systemAvailabilityLoaded] = useState(true);
@@ -2403,6 +2423,30 @@ function App() {
     setSystemSelected(target);
     if (target === 'plate-lab') setLabInitialBoundaryName(null);
   };
+  const copySystemLinks = async () => {
+    const baseUrl = window.location.origin + window.location.pathname;
+    const links = Object.entries(DIRECT_SYSTEM_LINKS)
+      .filter(([, systemId]) => systemAvailability[systemId])
+      .map(([query, systemId]) => SYSTEM_CATALOG[systemId].name + ': ' + baseUrl + '?' + query);
+    try {
+      await navigator.clipboard.writeText(links.join('\\n'));
+      setSystemLinksCopied(true);
+      window.setTimeout(() => setSystemLinksCopied(false), 2200);
+    } catch {
+      setSystemAvailabilityNotice('Clipboard access was blocked by the browser. Copy the links from the address bar or try a secure browser context.');
+    }
+  };
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const directQuery = Object.keys(DIRECT_SYSTEM_LINKS).find((query) => params.has(query));
+    if (directQuery) {
+      // Remove the one-time launch parameter after choosing the system. Refreshing
+      // the clean URL therefore returns to the system chooser.
+      window.history.replaceState({}, document.title, window.location.pathname + window.location.hash);
+    }
+  }, []);
+
 
   const submitTerminalPassword = (event) => {
     event.preventDefault();
@@ -3389,8 +3433,13 @@ function App() {
       <main className="system-landing">
         <div className="system-landing-glow" aria-hidden="true" />
         <header className="system-landing-brand">
-          <span className="system-brand-orb" aria-hidden="true"><span /></span>
-          <span>EARTH SYSTEMS</span>
+          <div className="system-landing-brand-lockup">
+            <span className="system-brand-orb" aria-hidden="true"><span /></span>
+            <span>EARTH SYSTEMS</span>
+          </div>
+          <button className="copy-system-links-button" type="button" onClick={copySystemLinks}>
+            <span aria-hidden="true">⧉</span> {systemLinksCopied ? 'Links copied' : 'Copy direct links'}
+          </button>
         </header>
         <section className="system-landing-content">
           <p className="system-eyebrow">A window into our planet</p>
