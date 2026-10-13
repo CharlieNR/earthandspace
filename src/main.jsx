@@ -155,9 +155,6 @@ const DIRECT_SYSTEM_LINKS = {
   phivolcs: 'phivolcs',
   platelab: 'plate-lab',
 };
-const DIRECT_SYSTEM_LINKS_BY_ID = Object.fromEntries(
-  Object.entries(DIRECT_SYSTEM_LINKS).map(([query, id]) => [id, query])
-);
 function getInitialSystemFromUrl() {
   if (typeof window === 'undefined') return 'landing';
   const params = new URLSearchParams(window.location.search);
@@ -2424,12 +2421,13 @@ function App() {
     if (target === 'plate-lab') setLabInitialBoundaryName(null);
   };
   const copySystemLinks = async () => {
-    const baseUrl = window.location.origin + window.location.pathname;
+    const cleanPath = window.location.pathname.replace(/\/+$/, '') || '/';
+    const baseUrl = window.location.origin + cleanPath;
     const links = Object.entries(DIRECT_SYSTEM_LINKS)
       .filter(([, systemId]) => systemAvailability[systemId])
       .map(([query, systemId]) => SYSTEM_CATALOG[systemId].name + ': ' + baseUrl + '?' + query);
     try {
-      await navigator.clipboard.writeText(links.join('\\n'));
+      await navigator.clipboard.writeText(links.join('\n'));
       setSystemLinksCopied(true);
       window.setTimeout(() => setSystemLinksCopied(false), 2200);
     } catch {
