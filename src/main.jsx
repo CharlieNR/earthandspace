@@ -1398,7 +1398,7 @@ function App() {
     if (!terminalOpen) return;
     const element = terminalBodyRef.current;
     if (element) element.scrollTop = element.scrollHeight;
-  }, [diagnosticLines, terminalOpen]);
+  }, [diagnosticLines, terminalLines, terminalOpen]);
 
   useEffect(() => {
     const onError = (event) => diagnostic('error', 'WINDOW', 'Unhandled browser error', { message: event.error?.message || event.message, source: event.filename, line: event.lineno, column: event.colno });
@@ -3586,6 +3586,12 @@ function App() {
               : ''}
             onPathClick={(path) => {
               if (path?.kind !== 'plate') return;
+              if (!systemAvailability['plate-lab']) {
+                setSystemAvailabilityNotice('Plate Tectonics Laboratory is NOT CURRENTLY AVAILABLE. Right-click its home-screen tile to open the terminal.');
+                setSystemSelected('landing');
+                return;
+              }
+              setSystemAvailabilityNotice('');
               setLabInitialBoundaryName(path.name);
               setSystemSelected('plate-lab');
               setTerminalOpen(false);
