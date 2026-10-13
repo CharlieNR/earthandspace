@@ -3439,41 +3439,43 @@ function App() {
         <section className="system-landing-content">
           <p className="system-eyebrow">A window into our planet</p>
           <h1>Where Was<br /><span>the Earth?</span></h1>
-          <p className="system-intro">Choose a system to continue.</p>
+          <p className="system-intro">Choose a system to continue. Right-click any system tile to open its password-protected terminal.</p>
+          {systemAvailabilityNotice && <p className="system-availability-notice" role="status">{systemAvailabilityNotice}</p>}
           <div className="system-choice-grid">
-            <button className="system-choice system-choice-primary" type="button" onClick={() => setSystemSelected('past-globe')}>
+            <button className={'system-choice system-choice-primary' + (!systemAvailability['past-globe'] ? ' system-choice-closed' : '')} type="button" onClick={() => openSystem('past-globe')} onContextMenu={(event) => { event.preventDefault(); openSystemTerminal('past-globe'); }} title={!systemAvailability['past-globe'] ? 'Not currently available · Right-click to open terminal' : 'Right-click to open terminal'}>
               <span className="system-choice-icon" aria-hidden="true">◉</span>
               <span className="system-choice-copy">
                 <strong>Past Globe</strong>
                 <span>Explore the movement of continents through geological time.</span>
+                {!systemAvailability['past-globe'] && <small className="system-choice-badge unavailable">NOT CURRENTLY AVAILABLE</small>}
               </span>
               <span className="system-choice-arrow" aria-hidden="true">↗</span>
             </button>
-            <button className="system-choice system-choice-primary" type="button" onClick={() => setSystemSelected('mass-space')}>
+            <button className={'system-choice system-choice-primary' + (!systemAvailability['mass-space'] ? ' system-choice-closed' : '')} type="button" onClick={() => openSystem('mass-space')} onContextMenu={(event) => { event.preventDefault(); openSystemTerminal('mass-space'); }} title={!systemAvailability['mass-space'] ? 'Not currently available · Right-click to open terminal' : 'Right-click to open terminal'}>
               <span className="system-choice-icon" aria-hidden="true">◌</span>
               <span className="system-choice-copy">
                 <strong>Mass in Space</strong>
                 <span>Compare how gravity changes your weight across the Solar System.</span>
+                {!systemAvailability['mass-space'] && <small className="system-choice-badge unavailable">NOT CURRENTLY AVAILABLE</small>}
               </span>
               <span className="system-choice-arrow" aria-hidden="true">↗</span>
             </button>
-            <button className="system-choice system-choice-primary" type="button" onClick={() => setSystemSelected('phivolcs')}>
+            <button className={'system-choice system-choice-primary' + (!systemAvailability.phivolcs ? ' system-choice-closed' : '')} type="button" onClick={() => openSystem('phivolcs')} onContextMenu={(event) => { event.preventDefault(); openSystemTerminal('phivolcs'); }} title={!systemAvailability.phivolcs ? 'Not currently available · Right-click to open terminal' : 'Right-click to open terminal'}>
               <span className="system-choice-icon" aria-hidden="true">⌁</span>
               <span className="system-choice-copy">
                 <strong>Global Seismic &amp; Volcanic Monitor</strong>
                 <span>Explore global earthquakes, volcanoes and reported eruptions.</span>
+                {!systemAvailability.phivolcs && <small className="system-choice-badge unavailable">NOT CURRENTLY AVAILABLE</small>}
               </span>
               <span className="system-choice-arrow" aria-hidden="true">↗</span>
             </button>
-            <button className="system-choice system-choice-primary system-choice-lab" type="button" onClick={() => {
-              setLabInitialBoundaryName(null);
-              setSystemSelected('plate-lab');
-            }}>
+            <button className={'system-choice system-choice-primary system-choice-lab' + (!systemAvailability['plate-lab'] ? ' system-choice-closed' : '')} type="button" onClick={() => openSystem('plate-lab')} onContextMenu={(event) => { event.preventDefault(); openSystemTerminal('plate-lab'); }} title={!systemAvailability['plate-lab'] ? 'Not currently available · Right-click to open terminal' : 'Right-click to open terminal'}>
               <span className="system-choice-icon" aria-hidden="true">⌁</span>
               <span className="system-choice-copy">
                 <strong>Plate Tectonics Laboratory</strong>
                 <span>Explore boundary types, experiment with plate movement and see what happens beneath the crust.</span>
                 <small className="system-choice-badge beta">BETA</small>
+                {!systemAvailability['plate-lab'] && <small className="system-choice-badge unavailable">NOT CURRENTLY AVAILABLE</small>}
               </span>
               <span className="system-choice-arrow" aria-hidden="true">↗</span>
             </button>
@@ -3489,6 +3491,7 @@ function App() {
           </div>
           <p className="system-landing-note">More Earth systems will be added here over time.</p>
         </section>
+        {renderTerminal()}
       </main>
     );
   }
