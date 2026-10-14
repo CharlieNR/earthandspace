@@ -1038,110 +1038,111 @@ function countryTerritoryPlatePieces(geometry, maximumEdgeDegrees = 1.15) {
 
 async function reconstructCountryPieceBatch(country, age, pieces, batchIndex, batchCount, startIndex, signal) {
   const countryName = country?.properties?.name || countryKey(country);
+  const endpoints = [
+    GPLATES_COUNTRY_URL,
+    'https://gws1.gplates.org/reconstruct/reconstruct_feature_collection',
+    'https://gws2.gplates.org/reconstruct/reconstruct_feature_collection',
+  ];
   let lastError;
 
   for (let attempt = 1; attempt <= FRAME_REQUEST_RETRIES; attempt += 1) {
     if (signal?.aborted) throw new DOMException('Request aborted', 'AbortError');
-    try {
-      const featureCollection = {
-        type: 'FeatureCollection',
-        features: pieces.map((piece, index) => ({
-          type: 'Feature',
-          id: String(country?.id || countryName) + '-territory-' + (startIndex + index),
-          properties: { name: countryName, territoryPiece: startIndex + index },
-          geometry: piece,
-        })),
-      };
-      // Assign each small polygon to its actual tectonic plate before reconstruction.
-      // Without plate IDs, deep-time country pieces can be returned unchanged or
-      // without usable ancestral coordinates, leaving nothing to highlight.
-      const assignmentUrl = new URL('https://gws.gplates.org/reconstruct/assign_geojson_plate_ids');
-      assignmentUrl.searchParams.set('feature_collection', JSON.stringify(featureCollection));
-      assignmentUrl.searchParams.set('model', modelForAge(age));
 
-      const assignmentResponse = await fetchWithTimeout(assignmentUrl.toString(), {
-        method: 'GET',
-        headers: { Accept: 'application/geo+json, application/json;q=0.9' },
-        signal,
-      });
-      const assignmentBody = await assignmentResponse.text();
-      if (!assignmentResponse.ok) {
-        throw new Error('GPlates plate assignment HTTP ' + assignmentResponse.status + ': ' + assignmentBody.slice(0, 250));
-      }
+    const featureCollection = {
+      type: 'FeatureCollection',
+      features: pieces.map((piece, index) => ({
+        type: 'Feature',
+        id: String(country?.id || countryName) + '-territory-' + (startIndex + index),
+        properties: { name: countryName, territoryPiece: startIndex + index },
+        geometry: piece,
+      })),
+    };
 
-      let assignedCollection;
+    for (const endpoint of endpoints) {
+      if (signal?.aborted) throw new DOMException('Request aborted', 'AbortError');
       try {
-        assignedCollection = JSON.parse(assignmentBody);
-      } catch {
-        throw new Error('GPlates plate assignment returned invalid JSON');
-      }
-      const assignedFeatures = flattenFeatures(assignedCollection);
-      if (!assignedFeatures.length) {
-        throw new Error('GPlates plate assignment returned no territory pieces');
-      }
+        diagnostic('info', 'COUNTRY', 'Submitting country polygons for automatic plate assignment and reconstruction', {
+          country: countryName,
+          age,
+          model: modelForAge(age),
+          batch: (batchIndex + 1) + '/' + batchCount,
+          pieces: pieces.length,
+          attempt,
+          endpoint,
+        });
 
-      const payload = new URLSearchParams();
-      payload.set('feature_collection', JSON.stringify({
-        type: 'FeatureCollection',
-        features: assignedFeatures,
-      }));
-      payload.set('time', String(age));
-      payload.set('model', modelForAge(age));
-      payload.set('anchor_plate_id', '0');
+        const payload = new URLSearchParams();
+        payload.set('feature_collection', JSON.stringify(featureCollection));
+        payload.set('time', String(age));
+        payload.set('model', modelForAge(age));
+        payload.set('anchor_plate_id', '0');
 
-      diagnostic('info', 'COUNTRY', 'Reconstructing plate-assigned territory pieces', {
-        country: countryName,
-        age,
-        batch: (batchIndex + 1) + '/' + batchCount,
-        pieces: assignedFeatures.length,
-        attempt,
-      });
-
-      const response = await fetchWithTimeout(GPLATES_COUNTRY_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
-          Accept: 'application/geo+json, application/json;q=0.9',
-        },
-        body: payload,
-        signal,
-      });
-      const textBody = await response.text();
-      if (!response.ok) throw new Error('GPlates country HTTP ' + response.status + ': ' + textBody.slice(0, 250));
-
-      const reconstructed = JSON.parse(textBody);
-      const features = flattenFeatures(reconstructed)
-        .filter((feature) => feature.geometry)
-        .map((feature) => ({
-          type: 'Feature',
-          properties: {
-            ...(feature.properties || {}),
-            trackedCountry: countryName,
+        const response = await fetchWithTimeout(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+            Accept: 'application/geo+json, application/json;q=0.9',
           },
-          geometry: feature.geometry,
-          __layer: 'tracked',
-        }));
+          body: payload,
+          signal,
+        });
+        const textBody = await response.text();
+        if (!response.ok) {
+          throw new Error('GPlates HTTP ' + response.status + ': ' + textBody.slice(0, 300));
+        }
 
-      if (!features.length) throw new Error('No reconstructed country pieces returned for batch ' + (batchIndex + 1));
-      return features;
-    } catch (error) {
-      lastError = error;
-      if (error?.name === 'AbortError' && signal?.aborted) throw error;
-      diagnostic('warn', 'COUNTRY', 'Territory-piece batch failed', {
-        country: countryName,
-        age,
-        batch: (batchIndex + 1) + '/' + batchCount,
-        attempt,
-        name: error?.name,
-        message: error?.message,
-      });
-      if (attempt < FRAME_REQUEST_RETRIES) await sleep(250 * attempt);
+        let reconstructed;
+        try {
+          reconstructed = JSON.parse(textBody);
+        } catch {
+          throw new Error('GPlates returned invalid JSON');
+        }
+
+        const features = flattenFeatures(reconstructed)
+          .filter((feature) => feature?.geometry)
+          .map((feature) => ({
+            type: 'Feature',
+            properties: {
+              ...(feature.properties || {}),
+              trackedCountry: countryName,
+            },
+            geometry: feature.geometry,
+            __layer: 'tracked',
+          }));
+
+        if (!features.length) {
+          throw new Error('GPlates returned no reconstructed polygon geometry');
+        }
+
+        diagnostic('info', 'COUNTRY', 'Country reconstruction batch succeeded', {
+          country: countryName,
+          age,
+          batch: (batchIndex + 1) + '/' + batchCount,
+          inputPieces: pieces.length,
+          outputFeatures: features.length,
+          endpoint,
+        });
+        return features;
+      } catch (error) {
+        lastError = error;
+        if (error?.name === 'AbortError' && signal?.aborted) throw error;
+        diagnostic('warn', 'COUNTRY', 'Country reconstruction endpoint failed; trying the next endpoint', {
+          country: countryName,
+          age,
+          batch: (batchIndex + 1) + '/' + batchCount,
+          attempt,
+          endpoint,
+          name: error?.name,
+          message: error?.message,
+        });
+      }
     }
+
+    if (attempt < FRAME_REQUEST_RETRIES) await sleep(250 * attempt);
   }
 
   throw lastError || new Error('Country territory-piece reconstruction failed');
 }
-
 async function fetchCountryReconstructionWithRetry(country, age, signal, onBatch = null) {
   const countryName = country?.properties?.name || countryKey(country);
   const allPieces = countryTerritoryPlatePieces(country?.geometry);
@@ -1151,8 +1152,8 @@ async function fetchCountryReconstructionWithRetry(country, age, signal, onBatch
   }
 
   // Keep POST payloads small enough for the public service, even for large countries.
-  // Plate assignment uses a GET query; keep batches small enough to avoid URL limits.
-  const batchSize = 20;
+  // POST the GeoJSON directly; the reconstruction endpoint assigns plate IDs itself.
+  const batchSize = 80;
   const batches = [];
   for (let index = 0; index < allPieces.length; index += batchSize) {
     batches.push(allPieces.slice(index, index + batchSize));
@@ -2437,10 +2438,11 @@ function App() {
     setTerminalAuthenticating(false);
     setTerminalCommandInput('');
     setTerminalLines([
-      { kind: 'system', text: '--- EARTH SYSTEMS DIAGNOSTIC CONSOLE ---' },
+      { kind: 'system', text: '--- EARTH SYSTEMS ROOT CONSOLE ---' },
       { kind: 'system', text: 'Target: ' + SYSTEM_CATALOG[target].name },
-      { kind: 'system', text: 'Read-only diagnostic console ready. No administrative commands are available.' },
-      { kind: 'system', text: 'This is a diagnostic simulator console, not an operating-system shell.' },
+      { kind: 'system', text: 'User: root (application console)' },
+      { kind: 'system', text: 'This console can inspect and control this browser session. It is not the website host OS.' },
+      { kind: 'system', text: 'Type help to list working commands.' },
     ]);
     setGplatesTestState('idle');
   };
@@ -2509,40 +2511,75 @@ function App() {
     const command = terminalCommandInput.trim();
     if (!command) return;
     setTerminalCommandInput('');
-    setTerminalLines((previous) => [...previous, { kind: 'command', text: 'charlie@earthsystems:~$ ' + command }].slice(-180));
+    setTerminalLines((previous) => [...previous, { kind: 'command', text: 'root@earthsystems:~# ' + command }].slice(-180));
     const lower = command.toLowerCase();
+    const args = command.split(/\\s+/);
+    const subcommand = (args[0] || '').toLowerCase();
 
     if (lower === 'help' || lower === 'help sudo') {
       terminalWrite([
-        'SUPPORTED COMMANDS',
-        '  help                 Show this command list',
-        '  status               Show whether each system is available',
-        '  ls                   List system identifiers',
-        '  whoami               Show the console user',
-        '  clear                Clear console output',
-        '  exit                 Close the terminal',
-        '  snapshot             Show a read-only runtime summary',
-        '  testgplates          Test GPlates service connectivity',
-        '  logs                 Show recent diagnostic log entries',
+        'EARTH SYSTEMS ROOT CONSOLE',
+        '  help                         List commands',
+        '  whoami                       Show console user',
+        '  hostname                     Show application host label',
+        '  uname -a                     Show runtime information',
+        '  pwd                          Show current system path',
+        '  ls | systems                 List available Earth Systems modules',
+        '  status                       Show module availability',
+        '  open <system-id>             Switch to a module',
+        '  snapshot                     Print a live application snapshot',
+        '  diagnostics                  Show recent diagnostic messages',
+        '  logs                         Print recent diagnostic log entries',
+        '  testgplates                  Test GPlates connectivity',
+        '  country status               Show selected-country reconstruction status',
+        '  country list                 List countries available to track',
+        '  country select <name>        Select and track a country',
+        '  country clear                Stop tracking the selected country',
+        '  cache status                 Show keyframe and country-cache status',
+        '  cache reset                  Clear local reconstruction caches and reset the globe',
+        '  clear                        Clear terminal output',
+        '  date                         Show the current date and time',
+        '  exit                         Close the terminal',
         '',
-        'This console is read-only. Administrative and system-control commands are disabled.',
-      ].join('\n'));
+        'Root applies to this application console only; it does not grant access to the hosting server.',
+        'Module changes and cache operations affect this browser session only.',
+      ].join('\\n'));
       return;
     }
     if (lower === 'whoami') {
-      terminalWrite('charlie · authenticated console session');
+      terminalWrite('root (application console; not operating-system root)', 'success');
+      return;
+    }
+    if (lower === 'hostname') {
+      terminalWrite('earthsystems');
+      return;
+    }
+    if (lower === 'uname -a' || lower === 'uname') {
+      terminalWrite('EarthSystems-Web 1.0 browser-runtime ' + navigator.userAgent);
       return;
     }
     if (lower === 'ls' || lower === 'systems') {
       terminalWrite(Object.entries(SYSTEM_CATALOG).map(([id, item]) =>
-        id + (systemAvailability[id] ? '  [AVAILABLE]' : '  [NOT CURRENTLY AVAILABLE]') + '  — ' + item.name
-      ).join('\n'));
+        id + (systemAvailability[id] ? '  [AVAILABLE]' : '  [CLOSED]') + '  — ' + item.name
+      ).join('\\n'));
       return;
     }
     if (lower === 'status') {
       terminalWrite(Object.entries(SYSTEM_CATALOG).map(([id, item]) =>
-        item.name + ': ' + (systemAvailability[id] ? 'AVAILABLE' : 'NOT CURRENTLY AVAILABLE')
-      ).join('\n'));
+        id.padEnd(18) + (systemAvailability[id] ? 'AVAILABLE' : 'CLOSED') + '  ' + item.name
+      ).join('\\n'));
+      return;
+    }
+    if (subcommand === 'open') {
+      const target = resolveSystemAlias(args.slice(1).join(' '));
+      if (!target) {
+        terminalWrite('Usage: open <system-id>. Run systems to see valid IDs.', 'error');
+      } else if (!systemAvailability[target]) {
+        terminalWrite(target + ' is marked CLOSED in this browser session.', 'error');
+      } else {
+        openSystem(target);
+        terminalWrite('Switched application view to ' + target + ' (' + SYSTEM_CATALOG[target].name + ').', 'success');
+      }
       return;
     }
     if (lower === 'clear' || lower === 'cls') {
@@ -2555,37 +2592,6 @@ function App() {
       setTerminalSessionToken(null);
       return;
     }
-
-    if (lower === 'snapshot') {
-      const snapshot = {
-        target: terminalTargetSystem,
-        availability: systemAvailability,
-        age,
-        keyframeAge,
-        model: modelForAge(keyframeAge),
-        cache: cacheProgress.cached + '/' + cacheProgress.total,
-        online: navigator.onLine,
-        indexedDB: 'indexedDB' in window,
-        viewport: window.innerWidth + 'x' + window.innerHeight,
-      };
-      diagnostic('info', 'SYSTEM', 'Runtime snapshot', snapshot);
-      terminalWrite(JSON.stringify(snapshot, null, 2));
-      return;
-    }
-    if (lower === 'testgplates') {
-      terminalWrite('Testing GPlates connectivity…');
-      const result = await testGplatesConnectivity();
-      terminalWrite('GPlates connectivity: ' + (result.ok ? 'PASSED' : 'FAILED') + (result.message ? ' — ' + result.message : ''), result.ok ? 'success' : 'error');
-      return;
-    }
-    if (lower === 'logs') {
-      terminalWrite(diagnosticLines.slice(-80).join('\\n') || 'No diagnostic log entries yet.');
-      return;
-    }
-    if (lower.startsWith('sudo ')) {
-      terminalWrite('READ ONLY: administrative commands are disabled. Use status, snapshot, testgplates, or logs for diagnostics.', 'error');
-      return;
-    }
     if (lower === 'pwd') {
       terminalWrite('/earth-systems/' + terminalTargetSystem);
       return;
@@ -2594,7 +2600,118 @@ function App() {
       terminalWrite(new Date().toString());
       return;
     }
-    terminalWrite('command not found: ' + command + '. This restricted console only supports commands shown by help.', 'error');
+    if (lower === 'snapshot') {
+      const snapshot = {
+        user: 'root (application console)',
+        target: terminalTargetSystem,
+        availability: systemAvailability,
+        selectedCountry: trackedCountry?.properties?.name || null,
+        countryStatus: trackedCountryStatus,
+        countryFeatures: trackedCountryLand.length,
+        countryProgress: trackedCountryProgress,
+        displayedAgeMa: age,
+        reconstructionKeyframeMa: keyframeAge,
+        model: modelForAge(keyframeAge),
+        keyframeCache: cacheProgress.cached + '/' + cacheProgress.total,
+        inMemoryCountryCacheEntries: trackedCountryCacheRef.current.size,
+        online: navigator.onLine,
+        indexedDB: 'indexedDB' in window,
+        viewport: window.innerWidth + 'x' + window.innerHeight,
+      };
+      diagnostic('info', 'SYSTEM', 'Runtime snapshot', snapshot);
+      terminalWrite(JSON.stringify(snapshot, null, 2));
+      return;
+    }
+    if (lower === 'diagnostics') {
+      terminalWrite(diagnosticLines.slice(-40).join('\\n') || 'No diagnostic log entries yet.');
+      return;
+    }
+    if (lower === 'testgplates') {
+      terminalWrite('Testing GPlates endpoints…');
+      setGplatesTestState('testing');
+      const result = await testGplatesConnectivity();
+      setGplatesTestState(result.ok ? 'passed' : 'failed');
+      terminalWrite(JSON.stringify(result, null, 2), result.ok ? 'success' : 'error');
+      return;
+    }
+    if (lower === 'logs') {
+      terminalWrite(diagnosticLines.slice(-80).join('\\n') || 'No diagnostic log entries yet.');
+      return;
+    }
+    if (subcommand === 'country') {
+      const action = (args[1] || 'status').toLowerCase();
+      if (action === 'status') {
+        const countryName = trackedCountry?.properties?.name || 'none';
+        const recentErrors = diagnosticLines.filter((line) => /\\[COUNTRY\\].*(failed|error|unavailable)/i.test(line)).slice(-5);
+        terminalWrite([
+          'Selected country: ' + countryName,
+          'Tracking status: ' + trackedCountryStatus,
+          'Displayed age: ' + age + ' Ma',
+          'Reconstruction keyframe: ' + keyframeAge + ' Ma (' + modelForAge(keyframeAge) + ')',
+          'Visible reconstructed features: ' + trackedCountryLand.length,
+          'Batch progress: ' + trackedCountryProgress.completed + '/' + trackedCountryProgress.total,
+          recentErrors.length ? 'Recent country errors:\\n' + recentErrors.join('\\n') : 'Recent country errors: none recorded',
+        ].join('\\n'));
+        return;
+      }
+      if (action === 'list') {
+        terminalWrite(countries.map((country) => country.properties?.name).filter(Boolean).sort((a, b) => a.localeCompare(b)).join('\\n') || 'Country data has not loaded yet.');
+        return;
+      }
+      if (action === 'clear' || action === 'stop') {
+        clearTrackedCountry();
+        terminalWrite('Country tracking cleared.', 'success');
+        return;
+      }
+      if (action === 'select' || action === 'track') {
+        const requested = args.slice(2).join(' ').trim();
+        if (!requested) {
+          terminalWrite('Usage: country select <country name>', 'error');
+          return;
+        }
+        const normaliseCountryName = (value) => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+        const aliases = { uk: 'unitedkingdom', britain: 'unitedkingdom', england: 'unitedkingdom' };
+        const wanted = aliases[normaliseCountryName(requested)] || normaliseCountryName(requested);
+        const match = countries.find((country) => {
+          const name = normaliseCountryName(country.properties?.name);
+          return name === wanted || name.includes(wanted) || wanted.includes(name);
+        });
+        if (!match) {
+          terminalWrite('Country not found: ' + requested + '. Run country list to see available names.', 'error');
+        } else {
+          selectCountry(match);
+          terminalWrite('Tracking selected: ' + (match.properties?.name || countryKey(match)) + '. Reconstruction requested for ' + keyframeAge + ' Ma.', 'success');
+        }
+        return;
+      }
+      terminalWrite('Unknown country command. Use: country status | list | select <name> | clear', 'error');
+      return;
+    }
+    if (subcommand === 'cache') {
+      const action = (args[1] || 'status').toLowerCase();
+      if (action === 'status') {
+        terminalWrite(JSON.stringify({
+          keyframes: cacheProgress.cached + '/' + cacheProgress.total,
+          frameCacheEntriesInMemory: frameCacheRef.current.size,
+          countryCacheEntriesInMemory: trackedCountryCacheRef.current.size,
+          indexedDBAvailable: 'indexedDB' in window,
+          selectedCountry: trackedCountry?.properties?.name || null,
+          countryStatus: trackedCountryStatus,
+        }, null, 2));
+      } else if (action === 'reset') {
+        terminalWrite('Clearing local reconstruction caches and resetting the globe…');
+        await resetFrames();
+        terminalWrite('Local cache reset requested. The globe has been reset to the present day.', 'success');
+      } else {
+        terminalWrite('Usage: cache status | cache reset', 'error');
+      }
+      return;
+    }
+    if (lower.startsWith('sudo ')) {
+      terminalWrite('No host-level sudo is available from a browser app. Use the supported application commands shown by help.', 'error');
+      return;
+    }
+    terminalWrite('command not found: ' + command + '. Type help for supported commands.', 'error');
   };
 
   const renderTerminal = () => terminalOpen ? (
@@ -2663,7 +2780,7 @@ function App() {
             <div className="terminal-head">
               <div>
                 <strong>LOCAL CONSOLE · {SYSTEM_CATALOG[terminalTargetSystem]?.name || 'SYSTEM'}</strong>
-                <span>Read-only diagnostic tools · type help for commands</span>
+                <span>Root application console · type help for commands</span>
               </div>
               <div className="terminal-tools">
                 <button
@@ -2710,7 +2827,7 @@ function App() {
 
             <pre ref={terminalBodyRef} className="terminal-body" aria-live="polite">{terminalLines.map((line) => line.text).join('\n')}</pre>
             <form className="terminal-command-form" onSubmit={submitTerminalCommand}>
-              <label htmlFor="terminal-command-input">charlie@earthsystems:~$</label>
+              <label htmlFor="terminal-command-input">root@earthsystems:~#</label>
               <input
                 ref={terminalCommandInputRef}
                 id="terminal-command-input"
@@ -2728,7 +2845,7 @@ function App() {
               <pre className="terminal-diagnostics-log">{diagnosticLines.join('\n')}</pre>
             </details>
             <div className="terminal-foot">
-              <span>RESTRICTED COMMANDS · LOCAL AVAILABILITY STATE</span>
+              <span>ROOT CONSOLE · BROWSER-SESSION CONTROLS</span>
               <span>{systemAvailability[terminalTargetSystem] ? 'TARGET AVAILABLE' : 'TARGET CLOSED'}</span>
             </div>
           </div>
