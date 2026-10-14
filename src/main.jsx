@@ -1052,17 +1052,55 @@ async function reconstructCountryPieceBatch(country, age, pieces, batchIndex, ba
           geometry: piece,
         })),
       };
+      // Assign each small polygon to its actual tectonic plate before reconstruction.
+      // Without plate IDs, deep-time country pieces can be returned unchanged or
+      // without usable ancestral coordinates, leaving nothing to highlight.
+      const assignmentPayload = new URLSearchParams();
+      assignmentPayload.set('feature_collection', JSON.stringify(featureCollection));
+      assignmentPayload.set('model', modelForAge(age));
+
+      const assignmentResponse = await fetchWithTimeout(
+        'https://gws.gplates.org/reconstruct/assign_geojson_plate_ids',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+            Accept: 'application/geo+json, application/json;q=0.9',
+          },
+          body: assignmentPayload,
+          signal,
+        }
+      );
+      const assignmentBody = await assignmentResponse.text();
+      if (!assignmentResponse.ok) {
+        throw new Error('GPlates plate assignment HTTP ' + assignmentResponse.status + ': ' + assignmentBody.slice(0, 250));
+      }
+
+      let assignedCollection;
+      try {
+        assignedCollection = JSON.parse(assignmentBody);
+      } catch {
+        throw new Error('GPlates plate assignment returned invalid JSON');
+      }
+      const assignedFeatures = flattenFeatures(assignedCollection);
+      if (!assignedFeatures.length) {
+        throw new Error('GPlates plate assignment returned no territory pieces');
+      }
+
       const payload = new URLSearchParams();
-      payload.set('feature_collection', JSON.stringify(featureCollection));
+      payload.set('feature_collection', JSON.stringify({
+        type: 'FeatureCollection',
+        features: assignedFeatures,
+      }));
       payload.set('time', String(age));
       payload.set('model', modelForAge(age));
       payload.set('anchor_plate_id', '0');
 
-      diagnostic('info', 'COUNTRY', 'Reconstructing territory pieces', {
+      diagnostic('info', 'COUNTRY', 'Reconstructing plate-assigned territory pieces', {
         country: countryName,
         age,
         batch: (batchIndex + 1) + '/' + batchCount,
-        pieces: pieces.length,
+        pieces: assignedFeatures.length,
         attempt,
       });
 
