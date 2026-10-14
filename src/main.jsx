@@ -2513,7 +2513,7 @@ function App() {
     setTerminalCommandInput('');
     setTerminalLines((previous) => [...previous, { kind: 'command', text: 'root@earthsystems:~# ' + command }].slice(-180));
     const lower = command.toLowerCase();
-    const args = command.split(/\\s+/);
+    const args = command.split(/\s+/);
     const subcommand = (args[0] || '').toLowerCase();
 
     if (lower === 'help' || lower === 'help sudo') {
@@ -2543,7 +2543,7 @@ function App() {
         '',
         'Root applies to this application console only; it does not grant access to the hosting server.',
         'Module changes and cache operations affect this browser session only.',
-      ].join('\\n'));
+      ].join('\n'));
       return;
     }
     if (lower === 'whoami') {
@@ -2561,13 +2561,13 @@ function App() {
     if (lower === 'ls' || lower === 'systems') {
       terminalWrite(Object.entries(SYSTEM_CATALOG).map(([id, item]) =>
         id + (systemAvailability[id] ? '  [AVAILABLE]' : '  [CLOSED]') + '  — ' + item.name
-      ).join('\\n'));
+      ).join('\n'));
       return;
     }
     if (lower === 'status') {
       terminalWrite(Object.entries(SYSTEM_CATALOG).map(([id, item]) =>
         id.padEnd(18) + (systemAvailability[id] ? 'AVAILABLE' : 'CLOSED') + '  ' + item.name
-      ).join('\\n'));
+      ).join('\n'));
       return;
     }
     if (subcommand === 'open') {
@@ -2623,7 +2623,7 @@ function App() {
       return;
     }
     if (lower === 'diagnostics') {
-      terminalWrite(diagnosticLines.slice(-40).join('\\n') || 'No diagnostic log entries yet.');
+      terminalWrite(diagnosticLines.slice(-40).join('\n') || 'No diagnostic log entries yet.');
       return;
     }
     if (lower === 'testgplates') {
@@ -2635,7 +2635,7 @@ function App() {
       return;
     }
     if (lower === 'logs') {
-      terminalWrite(diagnosticLines.slice(-80).join('\\n') || 'No diagnostic log entries yet.');
+      terminalWrite(diagnosticLines.slice(-80).join('\n') || 'No diagnostic log entries yet.');
       return;
     }
     if (subcommand === 'country') {
@@ -2650,12 +2650,12 @@ function App() {
           'Reconstruction keyframe: ' + keyframeAge + ' Ma (' + modelForAge(keyframeAge) + ')',
           'Visible reconstructed features: ' + trackedCountryLand.length,
           'Batch progress: ' + trackedCountryProgress.completed + '/' + trackedCountryProgress.total,
-          recentErrors.length ? 'Recent country errors:\\n' + recentErrors.join('\\n') : 'Recent country errors: none recorded',
-        ].join('\\n'));
+          recentErrors.length ? 'Recent country errors:\n' + recentErrors.join('\n') : 'Recent country errors: none recorded',
+        ].join('\n'));
         return;
       }
       if (action === 'list') {
-        terminalWrite(countries.map((country) => country.properties?.name).filter(Boolean).sort((a, b) => a.localeCompare(b)).join('\\n') || 'Country data has not loaded yet.');
+        terminalWrite(countries.map((country) => country.properties?.name).filter(Boolean).sort((a, b) => a.localeCompare(b)).join('\n') || 'Country data has not loaded yet.');
         return;
       }
       if (action === 'clear' || action === 'stop') {
