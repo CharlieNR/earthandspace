@@ -2642,7 +2642,7 @@ function App() {
       const action = (args[1] || 'status').toLowerCase();
       if (action === 'status') {
         const countryName = trackedCountry?.properties?.name || 'none';
-        const recentErrors = diagnosticLines.filter((line) => /\\[COUNTRY\\].*(failed|error|unavailable)/i.test(line)).slice(-5);
+        const recentErrors = diagnosticLines.filter((line) => /\[COUNTRY\].*(failed|error|unavailable)/i.test(line)).slice(-5);
         terminalWrite([
           'Selected country: ' + countryName,
           'Tracking status: ' + trackedCountryStatus,
