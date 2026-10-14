@@ -1055,22 +1055,15 @@ async function reconstructCountryPieceBatch(country, age, pieces, batchIndex, ba
       // Assign each small polygon to its actual tectonic plate before reconstruction.
       // Without plate IDs, deep-time country pieces can be returned unchanged or
       // without usable ancestral coordinates, leaving nothing to highlight.
-      const assignmentPayload = new URLSearchParams();
-      assignmentPayload.set('feature_collection', JSON.stringify(featureCollection));
-      assignmentPayload.set('model', modelForAge(age));
+      const assignmentUrl = new URL('https://gws.gplates.org/reconstruct/assign_geojson_plate_ids');
+      assignmentUrl.searchParams.set('feature_collection', JSON.stringify(featureCollection));
+      assignmentUrl.searchParams.set('model', modelForAge(age));
 
-      const assignmentResponse = await fetchWithTimeout(
-        'https://gws.gplates.org/reconstruct/assign_geojson_plate_ids',
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
-            Accept: 'application/geo+json, application/json;q=0.9',
-          },
-          body: assignmentPayload,
-          signal,
-        }
-      );
+      const assignmentResponse = await fetchWithTimeout(assignmentUrl.toString(), {
+        method: 'GET',
+        headers: { Accept: 'application/geo+json, application/json;q=0.9' },
+        signal,
+      });
       const assignmentBody = await assignmentResponse.text();
       if (!assignmentResponse.ok) {
         throw new Error('GPlates plate assignment HTTP ' + assignmentResponse.status + ': ' + assignmentBody.slice(0, 250));
@@ -1158,7 +1151,8 @@ async function fetchCountryReconstructionWithRetry(country, age, signal, onBatch
   }
 
   // Keep POST payloads small enough for the public service, even for large countries.
-  const batchSize = 300;
+  // Plate assignment uses a GET query; keep batches small enough to avoid URL limits.
+  const batchSize = 20;
   const batches = [];
   for (let index = 0; index < allPieces.length; index += batchSize) {
     batches.push(allPieces.slice(index, index + batchSize));
